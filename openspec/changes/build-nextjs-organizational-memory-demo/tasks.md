@@ -6,10 +6,10 @@
 
 ## 2. Storage Compatibility
 
-- [ ] 2.1 Add PostgreSQL selection to `db/client.py` while preserving SQLite test behavior and the existing public client functions.
-- [ ] 2.2 Add PostgreSQL schema bootstrap and persisted Git poll state.
-- [ ] 2.3 Add contract tests for SQLite and PostgreSQL-compatible placeholder and row behavior.
-- [ ] 2.4 Add remote Chroma configuration while retaining embedded Chroma fallback and the fixed MiniLM embedding behavior.
+- [x] 2.1 Add PostgreSQL selection to `db/client.py` while preserving SQLite test behavior and the existing public client functions.
+- [x] 2.2 Add PostgreSQL schema bootstrap and persisted Git poll state.
+- [x] 2.3 Add contract tests for SQLite and PostgreSQL-compatible placeholder and row behavior.
+- [x] 2.4 Add remote Chroma configuration while retaining embedded Chroma fallback and the fixed MiniLM embedding behavior.
 
 ## 3. Core Service and Capture Events
 
