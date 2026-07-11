@@ -94,6 +94,18 @@
 - Core-focused tests: 16 passed after the final poller fixes.
 - Full offline suite: 58 passed, 1 live test deselected.
 
+## 2026-07-11 - Express gateway
+
+- Added a browser-facing Express gateway for health, recommendation, asset
+  review, explanation, usage, and Server-Sent Events.
+- Used Node's built-in fetch with a five-second timeout; no extra HTTP or schema
+  dependency was added.
+- Degraded core health returns a renderable health envelope, while operational
+  routes return stable `CORE_UNAVAILABLE` errors without internal details.
+- Added an in-process event hub and one reconnecting internal core stream.
+- TDD verification: invalid input and timeout tests were RED first; final API
+  suite passed 7 tests and TypeScript build completed with no errors.
+
 ## 2026-07-11 - Chroma health-check review fix
 
 - Reproduced the original Chroma probe failure in the pinned upstream image:

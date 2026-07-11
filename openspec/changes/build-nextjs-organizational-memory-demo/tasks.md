@@ -19,9 +19,9 @@
 
 ## 4. Express Gateway
 
-- [ ] 4.1 Add Express request validation, Python-core proxy endpoints, timeout normalization, and health aggregation.
-- [ ] 4.2 Add a reconnectable SSE endpoint that fans out internal capture lifecycle events to browser clients.
-- [ ] 4.3 Add Express integration tests for successful proxying, timeout safety, degraded health, and SSE event mapping.
+- [x] 4.1 Add Express request validation, Python-core proxy endpoints, timeout normalization, and health aggregation.
+- [x] 4.2 Add a reconnectable SSE endpoint that fans out internal capture lifecycle events to browser clients.
+- [x] 4.3 Add Express integration tests for successful proxying, timeout safety, degraded health, and SSE event mapping.
 
 ## 5. Next.js Narrative Canvas
 
