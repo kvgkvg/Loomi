@@ -13,8 +13,8 @@
 
 ## 3. Core Service and Capture Events
 
-- [ ] 3.1 Add a thin FastAPI service that delegates health, recommend, asset review, explanation, and usage operations to existing Python modules.
-- [ ] 3.2 Add capture lifecycle event publishing and focused tests proving that `memory_ready` follows relational and vector persistence only.
+- [x] 3.1 Add a thin FastAPI service that delegates health, recommend, asset review, explanation, and usage operations to existing Python modules.
+- [x] 3.2 Add capture lifecycle event publishing and focused tests proving that `memory_ready` follows relational and vector persistence only.
 - [ ] 3.3 Add a bounded-backoff Git poller with persisted SHA state, duplicate prevention, and retry-safe tests.
 
 ## 4. Express Gateway
