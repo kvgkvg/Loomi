@@ -66,7 +66,7 @@ def run_git(args: list[str], cwd: Path) -> str:
 def is_commit_captured(connection, commit_sha: str) -> bool:
     pattern = f'%"commit_sha": "{commit_sha}"%'
     row = connection.execute(
-        "SELECT id FROM raw_events WHERE source_tool = 'git' AND raw_signal LIKE ?",
+        "SELECT id FROM raw_events WHERE source_tool = 'git' AND CAST(raw_signal AS TEXT) LIKE ?",
         (pattern,)
     ).fetchone()
     return row is not None

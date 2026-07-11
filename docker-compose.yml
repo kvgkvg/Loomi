@@ -43,7 +43,8 @@ services:
       - CHROMA_HOST=chroma
       - CHROMA_PORT=8000
       - LOOMI_REPO_PATH=/app
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - FEATHERLESS_API_KEY=${FEATHERLESS_API_KEY:-}
     volumes:
       - .:/app
     depends_on:
