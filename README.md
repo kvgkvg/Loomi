@@ -2,6 +2,21 @@
 
 MVP capture layer for turning Git changes to prompts, workflows, and agent configuration into versioned organizational memory. One call captures a commit; another extracts rationale with Featherless GLM-5.2, embeds it, and stores it in SQLite plus Chroma.
 
+## Quick Start (web demo)
+
+The full web stack (Next.js UI + Express gateway + FastAPI core + Postgres + Chroma) runs with:
+
+```bash
+cp .env.example .env   # set FEATHERLESS_API_KEY
+docker compose up -d --build
+docker compose exec core python -m db.seed
+docker compose exec core python scripts/seed_demo_chats.py
+```
+
+UI at <http://localhost:3000>. Full guide — seeding, demo walkthrough, tests, troubleshooting: **[docs/RUNNING.md](docs/RUNNING.md)**.
+
+The rest of this README covers the library-level Python workflow (no Docker).
+
 ## Setup
 
 Create isolated environment:
