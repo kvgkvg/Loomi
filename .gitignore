@@ -1,0 +1,23 @@
+# data / vector stores
+.data/
+.loomi/
+chroma/
+db/chroma/
+db/loomi.db
+*.sqlite
+*.sqlite3
+
+# env / secrets
+.env
+
+# python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.cache/
+
+# virtualenvs
+.venv311/
+
+# worktrees
+.worktrees/
