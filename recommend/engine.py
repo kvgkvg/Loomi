@@ -2,14 +2,15 @@
 import logging
 
 from db.client import get_pg_connection, get_vector_collection
-from recommend.scoring import compute
+from recommend.scoring import compute, role_adjusted
+from role_lens import resolve_role_lens
 
 logger = logging.getLogger(__name__)
 
 _OVERFETCH = 20
 
 
-def recommend(task_description: str, top_k: int = 5) -> list[dict]:
+def recommend(task_description: str, top_k: int = 5, role: str = None) -> list[dict]:
     """See spec: returns list of asset dicts sorted desc by score. Never raises.
 
     Embeddings are Chroma-managed: we pass the raw query text and Chroma embeds
@@ -46,6 +47,7 @@ def recommend(task_description: str, top_k: int = 5) -> list[dict]:
         ).fetchall()
         meta = {row["asset_id"]: row for row in rows}
 
+        lens = resolve_role_lens(role) if isinstance(role, str) and role.strip() else None
         results = []
         for aid, dist in zip(ids, dists):
             row = meta.get(aid)
@@ -57,8 +59,15 @@ def recommend(task_description: str, top_k: int = 5) -> list[dict]:
                 row["confidence"] or "auto",
                 row["usage_count"] or 0,
             )
-            results.append(
-                {
+            role_reason = None
+            if lens is not None:
+                searchable = f"{row['title']} {row['problem'] or ''}"
+                score = role_adjusted(score, searchable, lens)
+                role_reason = next(
+                    (f"Matches role goal: {goal}" for goal in lens.get("goals", []) if goal.casefold() in searchable.casefold()),
+                    "Role lens applied",
+                )
+            result = {
                     "asset_id": aid,
                     "title": row["title"],
                     "problem": (row["problem"] or "")[:200],
@@ -66,7 +75,9 @@ def recommend(task_description: str, top_k: int = 5) -> list[dict]:
                     "usage_count": row["usage_count"] or 0,
                     "owner_name": row["owner_name"] or "",
                 }
-            )
+            if lens is not None:
+                result["role_reason"] = role_reason
+            results.append(result)
 
         results.sort(key=lambda r: r["score"], reverse=True)
         return results[:top_k]
