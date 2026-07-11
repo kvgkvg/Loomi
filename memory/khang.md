@@ -70,3 +70,15 @@
 
 ### Remaining
 - Commit the three fixes on feature/app-demo and push.
+
+## 2026-07-12 - Real Adopt flow + external watched repo (Claude session)
+
+### Completed
+- GET /asset/{id} added to core (content + version history + per-version rationale + owner/usage_count); gateway proxies /api/asset/:id; frontend handleAdopt now fetches real content instead of the hardcoded triage template. Verified end-to-end with Playwright (system chromium, executable_path=/usr/bin/chromium): ghost suggestion 63% -> Review -> Adopt -> composer contains the actual support-triage.md content; usage_count incremented.
+- Poller now watches external clone at ../test_loomi_repo (LOOMI_WATCH_REPO in .env, mounted at /watched-repo). capture_commit resolves repo from CWD, so core runs with working_dir=/watched-repo + PYTHONPATH=/app (documented README pattern, no adapter change).
+- /pipeline page: React port of Claude Design "Loomi Pipeline.dc.html" (simulated stage visualization), linked from top nav.
+- Added core_model_cache volume for /root/.cache/chroma: every core restart re-downloaded the 79MB onnx embedding model and /recommend hung meanwhile.
+
+### Gotchas
+- Playwright networkidle never fires on the main page (SSE stream keeps connection open) - use domcontentloaded.
+- Evidence Stack renders only after /explain returns (LLM, 10-60s); UI tests need long timeouts.
