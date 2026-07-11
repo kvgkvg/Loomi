@@ -1,0 +1,20 @@
+# Ignore local dev dependencies and build artifacts
+**/node_modules
+**/.next
+**/.venv
+**/.venv311
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/*.pyd
+**/.pytest_cache
+**/.cache
+**/*.db
+**/*.sqlite
+**/*.sqlite3
+
+# Ignore git and logs
+.git
+.worktrees
+.superpowers
+*.log

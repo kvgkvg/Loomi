@@ -59,8 +59,8 @@ services:
 
   api:
     build:
-      context: .
-      dockerfile: api/Dockerfile
+      context: ./api
+      dockerfile: Dockerfile
     container_name: loomi-api
     ports:
       - "3001:3001"
@@ -77,8 +77,8 @@ services:
 
   frontend:
     build:
-      context: .
-      dockerfile: frontend/Dockerfile
+      context: ./frontend
+      dockerfile: Dockerfile
     container_name: loomi-frontend
     ports:
       - "3000:3000"
