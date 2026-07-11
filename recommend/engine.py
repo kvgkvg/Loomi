@@ -1,7 +1,11 @@
 """Task -> ranked related assets. Public entrypoint: recommend()."""
+import logging
+
 from db import client_stub
 from recommend.embedding import embed
 from recommend.scoring import compute
+
+logger = logging.getLogger(__name__)
 
 _OVERFETCH = 20
 
@@ -65,4 +69,5 @@ def recommend(task_description: str, top_k: int = 5) -> list[dict]:
         results.sort(key=lambda r: r["score"], reverse=True)
         return results[:top_k]
     except Exception:
+        logger.exception("recommend() failed for task_description=%r", task_description)
         return []
