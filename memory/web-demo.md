@@ -64,3 +64,12 @@
 - The core container command targets `core_service.app`, which Task 3 creates.
 - Full `docker compose up --build` verification follows once Tasks 2 and 3 add
   portable storage and the core HTTP service.
+
+## 2026-07-11 - Chroma health-check review fix
+
+- Reproduced the original Chroma probe failure in the pinned upstream image:
+  `python` is absent and exits 127.
+- Added a minimal child image that installs `curl`; Compose now checks Chroma's
+  `/api/v2/heartbeat` endpoint with that executable.
+- Verified `docker compose build chroma`, live startup through healthy state,
+  direct curl heartbeat output, Compose config, and clean diff checks.

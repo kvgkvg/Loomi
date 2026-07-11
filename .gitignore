@@ -1,7 +1,8 @@
 # data / vector stores
 .data/
 .loomi/
-chroma/
+chroma/*
+!chroma/Dockerfile
 db/chroma/
 db/loomi.db
 *.sqlite
