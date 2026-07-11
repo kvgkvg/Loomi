@@ -1,14 +1,15 @@
 import math
+import pytest
 from recommend.scoring import compute, W_COS, W_CONF, W_USE
 
 
 def test_weights_sum_to_one():
-    assert W_COS + W_CONF + W_USE == 1.0
+    assert math.isclose(W_COS + W_CONF + W_USE, 1.0)
 
 
 def test_perfect_match_user_provided_high_usage_near_one():
     # cosine=1, user_provided conf=1.0, usage saturated -> 0.7+0.2+0.1
-    assert compute(1.0, "user_provided", 20) == 1.0
+    assert compute(1.0, "user_provided", 20) == pytest.approx(1.0)
 
 
 def test_user_provided_beats_auto_all_else_equal():
