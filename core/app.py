@@ -211,6 +211,13 @@ async def git_poller_task():
 # Lifespan manager
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Trust the workspace directory for Git command line running under different ownership inside container
+    try:
+        subprocess.run(["git", "config", "--global", "--add", "safe.directory", "*"], check=True)
+        logger.info("Configured Git safe.directory to '*'")
+    except Exception as e:
+        logger.warning(f"Failed to configure Git safe.directory: {e}")
+
     # Start poller loop if not in testing mode
     poller = None
     if os.environ.get("LOOMI_TESTING") != "1":

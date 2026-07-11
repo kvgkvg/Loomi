@@ -5,7 +5,7 @@ services:
     image: postgres:15-alpine
     container_name: loomi-postgres
     ports:
-      - "5432:5432"
+      - "5433:5432"
     environment:
       POSTGRES_USER: loomi
       POSTGRES_PASSWORD: loomi
@@ -37,7 +37,7 @@ services:
       dockerfile: core/Dockerfile
     container_name: loomi-core
     ports:
-      - "8000:8000"
+      - "8002:8000"
     environment:
       - DATABASE_URL=postgresql://loomi:loomi@postgres:5432/loomi
       - CHROMA_HOST=chroma
@@ -52,7 +52,7 @@ services:
       chroma:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -70,7 +70,7 @@ services:
     depends_on:
       - core
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3001/api/health"]
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3001/api/health || exit 1"]
       interval: 5s
       timeout: 5s
       retries: 5
