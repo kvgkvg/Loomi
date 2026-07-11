@@ -3,7 +3,7 @@ import pytest
 from adapters.chat_adapter import capture_chat_export
 from capture_pipeline.chat_process import process_chat_event
 from db.client import get_pg_connection
-from rationale.review import ReviewError, review_statement
+from rationale.review import ReviewError, list_pending_statements, review_statement
 import capture_pipeline.chat_process as chat_module
 import rationale.review as review_module
 
@@ -70,3 +70,13 @@ def test_invalid_transition_is_rejected(pending, monkeypatch):
 
     with pytest.raises(ReviewError):
         review_statement(pending["statement_ids"][0], "reject", "reviewer")
+
+
+def test_pending_queue_contains_evidence_and_excludes_reviewed(pending, monkeypatch):
+    monkeypatch.setattr(review_module, "get_vector_collection", lambda: FakeCollection())
+    queue = list_pending_statements()
+    assert queue[0]["statement"] == "Return valid JSON"
+    assert queue[0]["source_turns"][0]["content"] == "JSON only"
+
+    review_statement(pending["statement_ids"][0], "reject", "reviewer")
+    assert list_pending_statements() == []

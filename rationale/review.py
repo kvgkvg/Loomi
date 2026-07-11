@@ -12,6 +12,43 @@ class ReviewError(ValueError):
     pass
 
 
+def list_pending_statements(asset_id: str | None = None) -> list[dict]:
+    connection = get_pg_connection()
+    try:
+        params = []
+        asset_filter = ""
+        if asset_id is not None:
+            asset_filter = " AND av.asset_id = ?"
+            params.append(asset_id)
+        rows = connection.execute(
+            """
+            SELECT rs.*, av.asset_id, a.title
+            FROM rationale_statements rs
+            JOIN asset_versions av ON av.id = rs.version_id
+            JOIN assets a ON a.id = av.asset_id
+            WHERE rs.review_status = 'pending'
+            """ + asset_filter + " ORDER BY rs.created_at, rs.id",
+            params,
+        ).fetchall()
+        output = []
+        for row in rows:
+            turns = connection.execute(
+                """
+                SELECT ct.id, ct.speaker_role, ct.content
+                FROM rationale_statement_turns rst
+                JOIN conversation_turns ct ON ct.id = rst.turn_id
+                WHERE rst.statement_id = ? ORDER BY ct.sequence_number
+                """,
+                (row["id"],),
+            ).fetchall()
+            item = dict(row)
+            item["source_turns"] = [dict(turn) for turn in turns]
+            output.append(item)
+        return output
+    finally:
+        connection.close()
+
+
 def _trusted_summary(connection, version_id: str) -> tuple[dict, dict]:
     rows = connection.execute(
         """
