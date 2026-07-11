@@ -1,8 +1,7 @@
 """Task -> ranked related assets. Public entrypoint: recommend()."""
 import logging
 
-from db import client_stub
-from recommend.embedding import embed
+from db.client import get_pg_connection, get_vector_collection
 from recommend.scoring import compute
 
 logger = logging.getLogger(__name__)
@@ -11,23 +10,26 @@ _OVERFETCH = 20
 
 
 def recommend(task_description: str, top_k: int = 5) -> list[dict]:
-    """See spec: returns list of asset dicts sorted desc by score. Never raises."""
+    """See spec: returns list of asset dicts sorted desc by score. Never raises.
+
+    Embeddings are Chroma-managed: we pass the raw query text and Chroma embeds
+    it with the same default model used to index assets, so cosine is comparable.
+    """
     try:
         if not task_description or not task_description.strip():
             return []
 
-        col = client_stub.get_vector_collection()
+        col = get_vector_collection()
         if col.count() == 0:
             return []
 
-        q = embed([task_description])[0]
-        hits = col.query(query_embeddings=[q], n_results=_OVERFETCH)
+        hits = col.query(query_texts=[task_description], n_results=_OVERFETCH)
         ids = hits["ids"][0]
         dists = hits["distances"][0]
         if not ids:
             return []
 
-        conn = client_stub.get_pg_connection()
+        conn = get_pg_connection()
         placeholders = ",".join("?" for _ in ids)
         rows = conn.execute(
             f"""

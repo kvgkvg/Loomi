@@ -242,7 +242,7 @@ def seed() -> None:
         chroma_docs.append((
             asset_id,
             f"{title}\n{latest_content}\n{latest_rat['problem']}",
-            {"title": title, "type": a_type, "owner": owner},
+            {"asset_id": asset_id, "title": title, "type": a_type, "owner": owner},
         ))
 
     for title, user, task in USAGE:

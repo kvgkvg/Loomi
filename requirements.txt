@@ -1,5 +1,6 @@
 # shared across all components (python 3.11)
-sentence-transformers>=5.0,<6
+# Embeddings are Chroma-managed (Chroma's default all-MiniLM-L6-v2 ONNX) —
+# no sentence-transformers/torch needed; one embedding backend for the team.
 chromadb>=1.0,<2
 pytest>=8.0
 

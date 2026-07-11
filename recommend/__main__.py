@@ -3,14 +3,14 @@ Runs seed if the collection is empty, then prints ranked recommendations.
 """
 import sys
 
-from db import client_stub
+from db.client import get_vector_collection
+from db.seed import seed
 from recommend.engine import recommend
-from scripts.seed_recommend import seed
 
 
 def main() -> None:
     task = " ".join(sys.argv[1:]) or "build a lead-classification agent for sales"
-    if client_stub.get_vector_collection().count() == 0:
+    if get_vector_collection().count() == 0:
         seed()
     results = recommend(task)
     print(f"\nTask: {task}\n")

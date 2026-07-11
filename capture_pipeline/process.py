@@ -5,21 +5,10 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
-from functools import lru_cache
 from typing import Any
 
 from capture_pipeline.llm import extract_rationale
 from db.client import get_pg_connection, get_vector_collection
-
-
-EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
-
-
-@lru_cache(maxsize=1)
-def _get_embedding_model():
-    from sentence_transformers import SentenceTransformer
-
-    return SentenceTransformer(EMBEDDING_MODEL)
 
 
 def _failure(message: str) -> dict:
@@ -166,12 +155,11 @@ def process_raw_event(raw_event_id: str) -> dict:
         )
 
         document = f"{event['content']}\n\nProblem: {rationale['problem']}"
-        embedding = _get_embedding_model().encode(document)
-        if hasattr(embedding, "tolist"):
-            embedding = embedding.tolist()
+        # Vector id = asset_id (one vector per asset, latest version) so the
+        # recommend engine can join hits[ids] -> assets.id directly. Chroma
+        # embeds the document with its default function (team's shared model).
         get_vector_collection().upsert(
-            ids=[version_id],
-            embeddings=[embedding],
+            ids=[asset_id],
             documents=[document],
             metadatas=[
                 {

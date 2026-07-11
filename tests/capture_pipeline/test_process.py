@@ -18,23 +18,16 @@ RATIONALE = {
 }
 
 
-class FakeEmbedder:
-    def __init__(self):
-        self.texts = []
-
-    def encode(self, text):
-        self.texts.append(text)
-        return [0.1, 0.2, 0.3]
-
-
 class FakeCollection:
+    """Stand-in for the Chroma collection. Embeddings are Chroma-managed now,
+    so upsert takes documents (no explicit embeddings)."""
+
     def __init__(self):
         self.records = {}
 
-    def upsert(self, *, ids, embeddings, documents, metadatas):
+    def upsert(self, *, ids, documents, metadatas):
         for index, item_id in enumerate(ids):
             self.records[item_id] = {
-                "embedding": embeddings[index],
                 "document": documents[index],
                 "metadata": metadatas[index],
             }
@@ -45,12 +38,10 @@ class FakeCollection:
 
 @pytest.fixture
 def fake_services(monkeypatch):
-    embedder = FakeEmbedder()
     collection = FakeCollection()
     monkeypatch.setattr(process_module, "extract_rationale", lambda content, signal: RATIONALE.copy())
     monkeypatch.setattr(process_module, "get_vector_collection", lambda: collection)
-    monkeypatch.setattr(process_module, "_get_embedding_model", lambda: embedder)
-    return embedder, collection
+    return collection
 
 
 def _insert_event(*, paths=None, title="add support prompt", content="Route tickets"):
@@ -83,9 +74,9 @@ def test_process_creates_searchable_asset(isolated_runtime, fake_services):
 
     assert result["rationale"] == RATIONALE
     assert result["embedded"] is True
-    embedder, collection = fake_services
-    assert embedder.texts == ["Route tickets\n\nProblem: Reduce misroutes"]
-    record = collection.records[result["version_id"]]
+    collection = fake_services
+    record = collection.records[result["asset_id"]]
+    assert record["document"] == "Route tickets\n\nProblem: Reduce misroutes"
     assert record["metadata"] == {
         "asset_id": result["asset_id"],
         "version_id": result["version_id"],

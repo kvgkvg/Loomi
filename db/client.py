@@ -24,17 +24,23 @@ import sqlite3
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
-
-DB_PATH = os.environ.get("LOOMI_DB_PATH", str(_REPO_ROOT / "db" / "loomi.db"))
-CHROMA_PATH = os.environ.get("LOOMI_CHROMA_PATH", str(_REPO_ROOT / "db" / "chroma"))
 COLLECTION_NAME = "assets"
 
 _SCHEMA_FILE = Path(__file__).resolve().parent / "schema.sql"
 
 
+def _db_path() -> str:
+    # Read at call time so tests (LOOMI_DB_PATH set per-test) get isolated paths.
+    return os.environ.get("LOOMI_DB_PATH", str(_REPO_ROOT / "db" / "loomi.db"))
+
+
+def _chroma_path() -> str:
+    return os.environ.get("LOOMI_CHROMA_PATH", str(_REPO_ROOT / "db" / "chroma"))
+
+
 def get_pg_connection() -> sqlite3.Connection:
     """Return a ready-to-use DB connection. Schema is auto-applied (idempotent)."""
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(_db_path())
     conn.row_factory = sqlite3.Row  # rows accessible by column name
     conn.execute("PRAGMA foreign_keys = ON")
     conn.executescript(_SCHEMA_FILE.read_text())
@@ -42,10 +48,15 @@ def get_pg_connection() -> sqlite3.Connection:
 
 
 def get_vector_collection():
-    """Return the shared Chroma collection (persistent, local, no server needed)."""
+    """Return the shared Chroma collection (persistent, local, no server needed).
+
+    Embeddings are Chroma-managed: callers pass documents=/query_texts= and Chroma
+    embeds with its default function (all-MiniLM-L6-v2 ONNX). Do NOT pass your own
+    embeddings — one embedding backend for the whole team.
+    """
     import chromadb
 
-    client = chromadb.PersistentClient(path=CHROMA_PATH)
+    client = chromadb.PersistentClient(path=_chroma_path())
     return client.get_or_create_collection(
         name=COLLECTION_NAME,
         metadata={"hnsw:space": "cosine"},

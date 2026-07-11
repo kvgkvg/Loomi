@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE TABLE IF NOT EXISTS assets (
   id TEXT PRIMARY KEY,
+  asset_key TEXT UNIQUE,             -- stable dedup identity (capture pipeline); NULL for seed rows
   type TEXT NOT NULL CHECK (type IN ('prompt', 'workflow', 'agent_config')),
   title TEXT NOT NULL,
   source_tool TEXT NOT NULL,

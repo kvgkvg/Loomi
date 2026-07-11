@@ -8,11 +8,6 @@ import capture_pipeline.process as process_module
 from db.client import get_vector_collection
 
 
-class FakeEmbedder:
-    def encode(self, text):
-        return [0.11, 0.22, 0.33]
-
-
 def _git(path, *args):
     return subprocess.run(
         ["git", *args], cwd=path, check=True, text=True, capture_output=True
@@ -42,12 +37,11 @@ def test_commit_to_vector_flow(tmp_path, isolated_runtime, monkeypatch):
             "confidence": "auto",
         },
     )
-    monkeypatch.setattr(process_module, "_get_embedding_model", lambda: FakeEmbedder())
-
     event = capture_commit(sha)
     result = process_raw_event(event["raw_event_id"])
 
     assert result["embedded"] is True
-    assert get_vector_collection().get(ids=[result["version_id"]])["ids"] == [
-        result["version_id"]
+    # Vector is indexed by asset_id (Chroma-managed embedding of the document).
+    assert get_vector_collection().get(ids=[result["asset_id"]])["ids"] == [
+        result["asset_id"]
     ]

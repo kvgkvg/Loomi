@@ -21,6 +21,7 @@ def test_connection_initializes_required_tables(isolated_runtime):
 
 
 def test_vector_collection_is_persistent(isolated_runtime):
-    from db.client import get_vector_collection
+    from db.client import get_vector_collection, COLLECTION_NAME
 
-    assert get_vector_collection().name == "organizational_memory"
+    assert COLLECTION_NAME == "assets"
+    assert get_vector_collection().name == "assets"

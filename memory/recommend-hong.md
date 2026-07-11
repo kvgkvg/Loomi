@@ -36,3 +36,28 @@
 - `python3 -m pytest -v` — 14/14 passed. Smoke
   (`python3 -m recommend "build a lead-classification agent for sales"`)
   ranks a-support-bot (An) #1.
+
+## 2026-07-11 — integration: adopt Khang DB + switch to Chroma-managed embeddings
+- Team decision: embeddings are now **Chroma-managed** (Chroma default EF =
+  all-MiniLM-L6-v2 ONNX). NOBODY passes explicit vectors anymore. Callers use
+  `collection.add/upsert(documents=...)` and `collection.query(query_texts=...)`.
+  Dropped sentence-transformers from requirements entirely.
+- Adopted Khang's canonical `db/client.py` + `db/schema.sql` + `db/seed.py`.
+  Deleted my `db/client_stub.py`, `recommend/embedding.py`,
+  `scripts/seed_recommend.py` and their tests.
+- Unified vector-id convention = **asset_id** (Khang used asset_id; Ấn was
+  using version_id). Changed Ấn's process.py upsert to `ids=[asset_id]` and
+  added `asset_id` to Khang's seed Chroma metadata. Engine joins hits[ids] ->
+  assets.id directly.
+- recommend/engine.py: now `get_vector_collection().query(query_texts=[task])`,
+  imports `db.client` (not stub). Scoring unchanged (0.7 cos + 0.2 conf + 0.1 usage).
+- db/client.py: made LOOMI_DB_PATH/LOOMI_CHROMA_PATH read at CALL time (was
+  import time) so the isolated_runtime test fixture actually isolates.
+- Added nullable `asset_key TEXT UNIQUE` to assets schema — Ấn's capture
+  pipeline dedups by it; seed rows leave it NULL.
+- Fixed Khang's stale test asserting collection name "organizational_memory"
+  -> canonical "assets".
+- Verify on python 3.11: `pytest -m "not live"` = 36 passed, 1 deselected.
+  Demo smoke: query "build a lead-classification agent for sales" ->
+  #1 "Lead qualification agent for inbound sales" (An, 0.565),
+  #2 "Support ticket triage chatbot prompt" (An, 0.347). Meaning-match proven.
