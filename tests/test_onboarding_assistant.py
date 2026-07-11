@@ -52,13 +52,13 @@ class OnboardingAssistantTests(unittest.TestCase):
             {"version_number": 2, "content": "new", "diff_summary": "fix", "problem": "fast", "constraints": ["JSON only", "no PII"]},
         ]
         model = {"explanation": "Grounded", "cited_versions": [2, 999], "cited_constraints": ["no PII", "invented"]}
-        with patch.object(assistant, "get_pg_connection", return_value=connection_for(asset, versions)), patch.object(assistant, "_call_gemini", return_value=model):
+        with patch.object(assistant, "get_pg_connection", return_value=connection_for(asset, versions)), patch.object(assistant, "_call_llm", return_value=model):
             result = assistant.explain_asset("a1")
         self.assertEqual(result, {"explanation": "Grounded", "cited_versions": [2], "cited_constraints": ["no PII"]})
 
-    def test_optional_question_is_passed_to_gemini_prompt(self):
+    def test_optional_question_is_passed_to_llm_prompt(self):
         asset = {"id": "a1", "title": "Lead agent", "type": "prompt"}
-        with patch.object(assistant, "get_pg_connection", return_value=connection_for(asset)), patch.object(assistant, "_call_gemini", return_value={"explanation": "ok", "cited_versions": [], "cited_constraints": []}) as call:
+        with patch.object(assistant, "get_pg_connection", return_value=connection_for(asset)), patch.object(assistant, "_call_llm", return_value={"explanation": "ok", "cited_versions": [], "cited_constraints": []}) as call:
             assistant.explain_asset("a1", "Why JSON?")
         self.assertIn("Why JSON?", call.call_args.args[0])
 
@@ -74,9 +74,9 @@ class OnboardingAssistantTests(unittest.TestCase):
             result = assistant.explain_asset("missing")
         self.assertEqual(result, {"explanation": "asset not found", "cited_versions": [], "cited_constraints": []})
 
-    def test_gemini_failure_is_safe(self):
+    def test_llm_failure_is_safe(self):
         asset = {"id": "a1", "title": "Lead agent", "type": "prompt"}
-        with patch.object(assistant, "get_pg_connection", return_value=connection_for(asset)), patch.object(assistant, "_call_gemini", side_effect=RuntimeError("quota secret")):
+        with patch.object(assistant, "get_pg_connection", return_value=connection_for(asset)), patch.object(assistant, "_call_llm", side_effect=RuntimeError("quota secret")):
             result = assistant.explain_asset("a1")
         self.assertEqual(result["cited_constraints"], [])
         self.assertNotIn("quota secret", result["explanation"])
@@ -84,31 +84,53 @@ class OnboardingAssistantTests(unittest.TestCase):
     def test_empty_model_explanation_is_treated_as_failure(self):
         asset = {"id": "a1", "title": "Lead agent", "type": "prompt"}
         empty = {"explanation": "", "cited_versions": [], "cited_constraints": []}
-        with patch.object(assistant, "get_pg_connection", return_value=connection_for(asset)), patch.object(assistant, "_call_gemini", return_value=empty):
+        with patch.object(assistant, "get_pg_connection", return_value=connection_for(asset)), patch.object(assistant, "_call_llm", return_value=empty):
             result = assistant.explain_asset("a1")
         self.assertEqual(result, {"explanation": "unable to generate explanation", "cited_versions": [], "cited_constraints": []})
 
-    def test_gemini_boundary_posts_json_and_parses_response(self):
-        class FakeResponse:
-            def __enter__(self):
-                return self
+    def test_llm_boundary_posts_prompt_and_parses_response(self):
+        captured = {}
 
-            def __exit__(self, *_):
-                return False
+        class FakeCompletions:
+            def create(self, *, model, temperature, messages):
+                captured["model"] = model
+                captured["messages"] = messages
 
-            def read(self):
-                return json.dumps({"candidates": [{"content": {"parts": [{"text": json.dumps({"explanation": "ok", "cited_versions": [], "cited_constraints": []})}]}}]}).encode()
+                class Msg:
+                    content = json.dumps(
+                        {"explanation": "ok", "cited_versions": [], "cited_constraints": []}
+                    )
 
-        with patch.dict("os.environ", {"GEMINI_API_KEY": "test-key", "GEMINI_MODEL": "test-model"}), patch.object(assistant.urllib.request, "urlopen", return_value=FakeResponse()) as open_url:
-            result = assistant._call_gemini("evidence prompt")
-        request = open_url.call_args.args[0]
-        self.assertIn("test-model", request.full_url)
-        self.assertNotIn("test-key", json.loads(request.data.decode())["contents"][0]["parts"][0]["text"])
+                class Choice:
+                    message = Msg()
+
+                class Resp:
+                    choices = [Choice()]
+
+                return Resp()
+
+        class FakeChat:
+            completions = FakeCompletions()
+
+        class FakeClient:
+            def __init__(self, *, base_url, api_key):
+                captured["base_url"] = base_url
+                captured["api_key"] = api_key
+                self.chat = FakeChat()
+
+        with patch.dict(
+            "os.environ", {"FEATHERLESS_API_KEY": "test-key", "FEATHERLESS_MODEL": "test-model"}
+        ):
+            result = assistant._call_llm("evidence prompt", client_factory=FakeClient)
+
+        self.assertEqual(captured["base_url"], assistant.FEATHERLESS_BASE_URL)
+        self.assertEqual(captured["model"], "test-model")
+        self.assertIn("evidence prompt", captured["messages"][-1]["content"])
         self.assertEqual(result["explanation"], "ok")
 
-    def test_malformed_gemini_response_is_safe_at_public_boundary(self):
+    def test_malformed_llm_response_is_safe_at_public_boundary(self):
         asset = {"id": "a1", "title": "Lead agent", "type": "prompt"}
-        with patch.object(assistant, "get_pg_connection", return_value=connection_for(asset)), patch.object(assistant, "_call_gemini", side_effect=ValueError("provider payload")):
+        with patch.object(assistant, "get_pg_connection", return_value=connection_for(asset)), patch.object(assistant, "_call_llm", side_effect=ValueError("provider payload")):
             result = assistant.explain_asset("a1")
         self.assertEqual(result, {"explanation": "unable to generate explanation", "cited_versions": [], "cited_constraints": []})
 

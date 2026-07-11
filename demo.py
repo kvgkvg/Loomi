@@ -6,8 +6,8 @@ Flow:
   1. Hồng   — a new hire types a task; recommend() surfaces related assets
               by MEANING, not keywords (the core loop).
   2. Trí    — onboarding assistant explains WHY the top asset was built
-              (grounded in stored rationale; uses Gemini if GEMINI_API_KEY set,
-              otherwise prints the stored rationale directly — still grounded).
+              (grounded in stored rationale; uses Featherless if FEATHERLESS_API_KEY
+              set, otherwise prints the stored rationale directly — still grounded).
   3. Ấn     — (optional, --capture) commit a brand-new prompt to a throwaway
               git repo, run the capture pipeline, then recommend() again to
               show the fresh knowledge is instantly discoverable.
@@ -130,18 +130,20 @@ def _fallback_rationale(asset_id: str) -> dict:
 
 def stage_onboard(asset_id: str) -> None:
     _rule("STAGE 2 — Trí: onboarding assistant explains WHY it was built")
-    if os.getenv("GEMINI_API_KEY"):
+    if os.getenv("FEATHERLESS_API_KEY"):
         try:
             from onboarding.assistant import explain_asset
 
             result = explain_asset(asset_id)
-            source = "Gemini (grounded on stored rationale)"
+            if not result.get("explanation", "").strip() or result["explanation"] == "unable to generate explanation":
+                raise RuntimeError("assistant returned no explanation")
+            source = "Featherless (grounded on stored rationale)"
         except Exception as exc:  # live call failed — degrade gracefully
-            print(f"(Gemini call failed: {exc} — falling back to stored rationale)\n")
+            print(f"(Featherless call failed: {exc} — falling back to stored rationale)\n")
             result = _fallback_rationale(asset_id)
             source = "stored rationale (no LLM)"
     else:
-        print("(GEMINI_API_KEY not set — showing stored rationale directly)\n")
+        print("(FEATHERLESS_API_KEY not set — showing stored rationale directly)\n")
         result = _fallback_rationale(asset_id)
         source = "stored rationale (no LLM)"
 

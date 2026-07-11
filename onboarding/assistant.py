@@ -2,13 +2,11 @@
 
 import json
 import os
-import urllib.error
-import urllib.request
+import re
 
 
-DEFAULT_MODEL = "gemini-3.1-flash-lite"
-GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
-TIMEOUT_SECONDS = 20
+FEATHERLESS_BASE_URL = "https://api.featherless.ai/v1"
+FEATHERLESS_MODEL = "zai-org/GLM-5.2"
 
 
 def get_pg_connection():
@@ -104,35 +102,51 @@ def _prompt(evidence, question):
     )
 
 
-def _call_gemini(prompt):
-    api_key = os.getenv("GEMINI_API_KEY")
+def _strip_json_fence(content):
+    match = re.fullmatch(r"\s*```(?:json)?\s*\n?(.*?)\n?```\s*", content, re.DOTALL)
+    return match.group(1).strip() if match else content.strip()
+
+
+_SYSTEM_PROMPT = (
+    "You explain organizational AI assets grounded only in the evidence given. "
+    "Return exactly one JSON object with keys explanation (string), "
+    "cited_versions (integer list), cited_constraints (string list). No markdown."
+)
+
+
+def _call_llm(prompt, *, client_factory=None):
+    """Call Featherless (OpenAI-compatible) and return a parsed result dict."""
+    api_key = os.getenv("FEATHERLESS_API_KEY")
     if not api_key:
-        raise RuntimeError("missing Gemini API key")
-    model = os.getenv("GEMINI_MODEL", DEFAULT_MODEL)
-    body = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"responseMimeType": "application/json", "temperature": 0.2},
-    }
-    request = urllib.request.Request(
-        GEMINI_ENDPOINT.format(model=model, key=api_key),
-        data=json.dumps(body).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST",
+        raise RuntimeError("missing Featherless API key")
+    model = os.getenv("FEATHERLESS_MODEL", FEATHERLESS_MODEL)
+    if client_factory is None:
+        from openai import OpenAI
+
+        client_factory = OpenAI
+    client = client_factory(base_url=FEATHERLESS_BASE_URL, api_key=api_key)
+    response = client.chat.completions.create(
+        model=model,
+        temperature=0.2,
+        messages=[
+            {"role": "system", "content": _SYSTEM_PROMPT},
+            {"role": "user", "content": prompt},
+        ],
     )
-    with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:
-        payload = json.loads(response.read().decode("utf-8"))
-    text = payload["candidates"][0]["content"]["parts"][0]["text"]
-    result = json.loads(text)
+    text = response.choices[0].message.content
+    if not isinstance(text, str) or not text.strip():
+        raise ValueError("empty LLM response")
+    result = json.loads(_strip_json_fence(text))
     if not isinstance(result, dict) or not isinstance(result.get("explanation"), str):
-        raise ValueError("invalid Gemini response")
+        raise ValueError("invalid LLM response")
     if not isinstance(result.get("cited_versions"), list) or not isinstance(result.get("cited_constraints"), list):
-        raise ValueError("invalid Gemini citations")
+        raise ValueError("invalid LLM citations")
     return result
 
 
 def _validated_result(model_result, evidence):
     if not isinstance(model_result.get("explanation"), str) or not model_result["explanation"].strip():
-        raise ValueError("empty Gemini explanation")
+        raise ValueError("empty model explanation")
     versions = {version["version_number"] for version in evidence["versions"]}
     constraints = {constraint for version in evidence["versions"] for constraint in version["constraints"]}
     cited_versions = [value for value in model_result["cited_versions"] if isinstance(value, int) and not isinstance(value, bool) and value in versions]
@@ -153,7 +167,7 @@ def explain_asset(asset_id: str, question: str = None) -> dict:
         evidence = _load_evidence(connection, asset_id.strip())
         if evidence is None:
             return _empty_result("asset not found")
-        return _validated_result(_call_gemini(_prompt(evidence, question)), evidence)
+        return _validated_result(_call_llm(_prompt(evidence, question)), evidence)
     except Exception:
         return _empty_result("unable to generate explanation")
     finally:
