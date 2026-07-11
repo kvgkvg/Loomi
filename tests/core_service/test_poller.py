@@ -1,3 +1,6 @@
+from pathlib import Path
+
+import core_service.poller as poller_module
 from core_service.poller import GitPoller
 
 
@@ -76,6 +79,51 @@ def test_processed_sha_survives_restart(isolated_runtime):
     make_poller(repo, isolated_runtime).poll_once()
 
     assert repo.capture_calls == ["abc"]
+
+
+def test_pending_raw_event_survives_restart_without_recapture(isolated_runtime):
+    repo = FakeRepo()
+    repo.results = [
+        {"embedded": False},
+        {"embedded": True, "asset_id": "asset-1", "version_id": "v1"},
+    ]
+
+    make_poller(repo, isolated_runtime).poll_once()
+    make_poller(repo, isolated_runtime).poll_once()
+
+    assert repo.capture_calls == ["abc"]
+    assert repo.process_calls == ["raw-abc", "raw-abc"]
+
+
+def test_default_capture_uses_configured_repository(
+    isolated_runtime, monkeypatch
+):
+    captured = []
+
+    def capture_from_repository(sha, repository):
+        captured.append((sha, Path(repository)))
+        return {
+            "raw_event_id": "raw-abc",
+            "title": "Prompt update",
+            "source_tool": "git",
+        }
+
+    monkeypatch.setattr(
+        poller_module, "capture_commit_from_repository", capture_from_repository
+    )
+    poller = GitPoller(
+        repository=isolated_runtime,
+        resolve_head=lambda: "abc",
+        process=lambda _: {
+            "embedded": True,
+            "asset_id": "asset-1",
+            "version_id": "v1",
+        },
+    )
+
+    poller.poll_once()
+
+    assert captured == [("abc", isolated_runtime.resolve())]
 
 
 def test_backoff_is_bounded_and_resets_after_success(isolated_runtime):

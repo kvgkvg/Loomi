@@ -4,7 +4,7 @@ import subprocess
 import threading
 from pathlib import Path
 
-from adapters.git_adapter import capture_commit
+from adapters.git_adapter import capture_commit_from_repository
 from capture_pipeline.process import process_raw_event
 from db.client import get_git_poll_state, save_git_poll_state
 
@@ -17,7 +17,7 @@ class GitPoller:
         interval: float = 3,
         max_backoff: float = 30,
         resolve_head=None,
-        capture=capture_commit,
+        capture=None,
         process=process_raw_event,
         publish=lambda event: None,
     ):
@@ -25,7 +25,9 @@ class GitPoller:
         self.interval = interval
         self.max_backoff = max_backoff
         self._resolve_head = resolve_head or self._git_head
-        self._capture = capture
+        self._capture = capture or (
+            lambda sha: capture_commit_from_repository(sha, self.repository)
+        )
         self._process = process
         self._publish = publish
         self._state_id = str(self.repository)
@@ -56,17 +58,33 @@ class GitPoller:
     def poll_once(self) -> None:
         state = get_git_poll_state(self._state_id)
         processed = state["last_processed_sha"] if state else None
+        if state and self._raw_event_id is None:
+            self._raw_event_id = state["pending_raw_event_id"]
+            self._pending_sha = state["last_observed_sha"] if self._raw_event_id else None
+            if self._raw_event_id:
+                self._captured = {
+                    "raw_event_id": self._raw_event_id,
+                    "title": state["pending_title"],
+                    "source_tool": state["pending_source"],
+                }
         sha = self._pending_sha
         try:
             sha = sha or self._resolve_head()
             if sha == processed:
                 return
             if self._raw_event_id is None:
-                save_git_poll_state(self._state_id, sha, processed)
                 self._publish({"type": "capture_started", "commit_sha": sha})
                 self._captured = self._capture(sha)
                 self._raw_event_id = self._captured["raw_event_id"]
                 self._pending_sha = sha
+                save_git_poll_state(
+                    self._state_id,
+                    sha,
+                    processed,
+                    pending_raw_event_id=self._raw_event_id,
+                    pending_title=self._captured["title"],
+                    pending_source=self._captured["source_tool"],
+                )
 
             result = self._process(self._raw_event_id)
             ready = result.get("embedded") and result.get("asset_id") and result.get("version_id")

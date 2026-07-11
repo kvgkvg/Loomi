@@ -95,5 +95,8 @@ CREATE TABLE IF NOT EXISTS git_poll_state (
   id TEXT PRIMARY KEY,
   last_observed_sha TEXT,
   last_processed_sha TEXT,
+  pending_raw_event_id TEXT,
+  pending_title TEXT,
+  pending_source TEXT,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

@@ -65,6 +65,35 @@
 - Full `docker compose up --build` verification follows once Tasks 2 and 3 add
   portable storage and the core HTTP service.
 
+## 2026-07-11 - Core service and Git poller
+
+### Completed
+
+- Added the thin FastAPI boundary, safe lifecycle stream, grounded asset API,
+  usage recording, and a single optional Git poller owned by app lifespan.
+- Added retry backoff, duplicate prevention, and persisted pending raw-event
+  identity so restarts resume processing without recapturing a commit.
+- Added an internal repository-aware capture entrypoint while keeping the
+  public `capture_commit(commit_sha)` contract unchanged.
+
+### Problems and fixes
+
+- The first core endpoint passed a commit SHA directly to
+  `process_raw_event()`. Fixed the flow to capture the commit, then process its
+  returned raw-event ID.
+- Raw capture errors were visible through HTTP/SSE. Replaced them with stable
+  `capture failed` output while retaining internal logs.
+- The first poller resolved HEAD in the configured repo but captured from the
+  service CWD. It now passes the configured repository explicitly.
+- Pending retry identity originally lived only in memory. It now persists in
+  `git_poll_state` with enough metadata to publish a grounded ready event after
+  restart.
+
+### Verification
+
+- Core-focused tests: 16 passed after the final poller fixes.
+- Full offline suite: 58 passed, 1 live test deselected.
+
 ## 2026-07-11 - Chroma health-check review fix
 
 - Reproduced the original Chroma probe failure in the pinned upstream image:

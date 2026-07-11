@@ -125,6 +125,12 @@ def get_pg_connection():
     conn.row_factory = sqlite3.Row  # rows accessible by column name
     conn.execute("PRAGMA foreign_keys = ON")
     conn.executescript(_SCHEMA_FILE.read_text())
+    columns = {
+        row[1] for row in conn.execute("PRAGMA table_info(git_poll_state)").fetchall()
+    }
+    for name in ("pending_raw_event_id", "pending_title", "pending_source"):
+        if name not in columns:
+            conn.execute(f"ALTER TABLE git_poll_state ADD COLUMN {name} TEXT")
     return conn
 
 
@@ -132,7 +138,11 @@ def get_git_poll_state(state_id: str):
     connection = get_pg_connection()
     try:
         return connection.execute(
-            "SELECT last_observed_sha, last_processed_sha FROM git_poll_state WHERE id = ?",
+            """
+            SELECT last_observed_sha, last_processed_sha, pending_raw_event_id,
+                   pending_title, pending_source
+            FROM git_poll_state WHERE id = ?
+            """,
             (state_id,),
         ).fetchone()
     finally:
@@ -140,20 +150,39 @@ def get_git_poll_state(state_id: str):
 
 
 def save_git_poll_state(
-    state_id: str, last_observed_sha: str | None, last_processed_sha: str | None
+    state_id: str,
+    last_observed_sha: str | None,
+    last_processed_sha: str | None,
+    *,
+    pending_raw_event_id: str | None = None,
+    pending_title: str | None = None,
+    pending_source: str | None = None,
 ) -> None:
     connection = get_pg_connection()
     try:
         connection.execute(
             """
-            INSERT INTO git_poll_state (id, last_observed_sha, last_processed_sha)
-            VALUES (?, ?, ?)
+            INSERT INTO git_poll_state (
+                id, last_observed_sha, last_processed_sha,
+                pending_raw_event_id, pending_title, pending_source
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 last_observed_sha = excluded.last_observed_sha,
                 last_processed_sha = excluded.last_processed_sha,
+                pending_raw_event_id = excluded.pending_raw_event_id,
+                pending_title = excluded.pending_title,
+                pending_source = excluded.pending_source,
                 updated_at = CURRENT_TIMESTAMP
             """,
-            (state_id, last_observed_sha, last_processed_sha),
+            (
+                state_id,
+                last_observed_sha,
+                last_processed_sha,
+                pending_raw_event_id,
+                pending_title,
+                pending_source,
+            ),
         )
         connection.commit()
     finally:

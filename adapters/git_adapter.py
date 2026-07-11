@@ -60,9 +60,7 @@ def _changed_paths(commit_sha: str, repository: Path) -> list[str]:
     return supported
 
 
-def capture_commit(commit_sha: str) -> dict:
-    """Capture one Git commit and persist its canonical raw event."""
-    repository = Path(_git("rev-parse", "--show-toplevel")).resolve()
+def _capture_commit(commit_sha: str, repository: Path) -> dict:
     resolved_sha = _resolve_commit(commit_sha, repository)
     paths = _changed_paths(resolved_sha, repository)
     if not paths:
@@ -118,3 +116,14 @@ def capture_commit(commit_sha: str) -> dict:
         "content": content,
         "raw_signal": raw_signal,
     }
+
+
+def capture_commit_from_repository(commit_sha: str, repository: str | Path) -> dict:
+    """Capture a commit from an explicitly configured repository."""
+    return _capture_commit(commit_sha, Path(repository).resolve())
+
+
+def capture_commit(commit_sha: str) -> dict:
+    """Capture one Git commit and persist its canonical raw event."""
+    repository = Path(_git("rev-parse", "--show-toplevel")).resolve()
+    return _capture_commit(commit_sha, repository)
