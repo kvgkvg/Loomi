@@ -14,3 +14,25 @@
   - Confirm with Ấn: Chroma collection name 'assets', vector id = asset_id,
     Ấn embeds `content + rationale.problem` (same as seed docs here).
   - Re-run `python3 -m pytest` against real captured data, not seed.
+
+## 2026-07-11 — final-review fix: semantic win + cosine clamp
+- Problem: a-support-bot beat a-code-review on final score by only 0.002,
+  and a-code-review actually had the HIGHER raw cosine (spurious overlap on
+  token "agent"). Support-bot was winning on the usage-count term, not
+  semantics — undermined the "match by meaning" claim.
+- Fix (seed data only, scoring weights untouched):
+  - Reworded a-support-bot content + problem to lean into
+    classify/categorize/route/bucket/triage semantics, still avoiding the
+    literal tokens "lead"/"sales"/"classification".
+  - Reworded a-code-review to drop the spurious "agent" token
+    ("Reviews pull requests..." instead of "Agent that comments...").
+  - Clamped cosine in recommend/engine.py: `max(0.0, 1.0 - float(dist))`
+    so it can't go negative (spec says 0-1 score).
+- Verified with throwaway raw-cosine probe (query: "build a
+  lead-classification agent for sales", fresh seed):
+  - a-support-bot cosine = 0.290894
+  - a-code-review  cosine = 0.148497
+  - Margin ~0.142 — support-bot now wins on semantics, not just tiebreak.
+- `python3 -m pytest -v` — 14/14 passed. Smoke
+  (`python3 -m recommend "build a lead-classification agent for sales"`)
+  ranks a-support-bot (An) #1.

@@ -49,7 +49,7 @@ def recommend(task_description: str, top_k: int = 5) -> list[dict]:
             row = meta.get(aid)
             if row is None:
                 continue
-            cosine = 1.0 - float(dist)
+            cosine = max(0.0, 1.0 - float(dist))
             score = compute(
                 cosine,
                 row["confidence"] or "auto",

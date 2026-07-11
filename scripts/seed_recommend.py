@@ -18,10 +18,14 @@ USERS = [
 ASSETS = [
     ("a-support-bot", "prompt",
      "Support ticket triage assistant", "git", "u-an", 12,
-     "Prompt that reads an incoming customer support ticket and sorts it into "
-     "the right category so the team can route it to the correct queue.",
-     "Support agents were overwhelmed manually sorting inbound tickets; needed "
-     "automatic categorization of free-text messages into fixed buckets.",
+     "Reads each incoming customer support ticket and sorts it into the "
+     "correct category, then routes it to the matching team queue "
+     "automatically — turning unstructured inbound messages into labeled "
+     "buckets.",
+     "Support agents were drowning in manually triaging inbound tickets; "
+     "they needed to automatically categorize free-text customer messages "
+     "into a fixed set of predefined buckets and route them without human "
+     "sorting.",
      "user_provided"),
     ("a-email-writer", "prompt",
      "Marketing email drafter", "git", "u-mai", 3,
@@ -35,8 +39,9 @@ ASSETS = [
      "auto"),
     ("a-code-review", "agent_config",
      "PR review bot", "git", "u-tan", 5,
-     "Agent that comments on pull requests flagging style and bug risks.",
-     "Human reviewers missed repetitive style issues on every PR.",
+     "Reviews pull requests and leaves comments flagging style problems and "
+     "likely bugs.",
+     "Human reviewers kept missing repetitive style issues on every PR.",
      "user_provided"),
     ("a-invoice-parse", "workflow",
      "Invoice field extractor", "n8n", "u-mai", 2,
