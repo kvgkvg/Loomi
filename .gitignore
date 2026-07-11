@@ -16,6 +16,11 @@ __pycache__/
 .pytest_cache/
 .cache/
 
+# node
+node_modules/
+.next/
+npm-debug.log*
+
 # virtualenvs
 .venv311/
 

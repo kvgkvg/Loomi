@@ -1,0 +1,10 @@
+.git
+.worktrees
+.superpowers
+**/.next
+**/node_modules
+__pycache__
+.pytest_cache
+.data
+db/chroma
+db/loomi.db

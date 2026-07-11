@@ -37,3 +37,30 @@
 - User must review and approve the written OpenSpec artifacts.
 - After approval, generate `tasks.md` and the detailed implementation plan.
 - Only then begin subagent-driven implementation and runtime/browser setup.
+
+## 2026-07-11 - Runnable workspace and Compose skeleton
+
+### Completed
+
+- Added minimal Next.js and Express workspaces with root and health smoke tests.
+- Added separate frontend, API, and core Dockerfiles plus PostgreSQL and Chroma
+  services, health checks, and named state volumes in one Compose stack.
+- Added Node and container build output to the existing local-runtime ignores.
+
+### Decisions
+
+- Kept the initial UI and API deliberately minimal; later tasks own the
+  Narrative Canvas and downstream health aggregation.
+- Used TypeScript checks as the API build and a static Next.js root route as
+  the frontend baseline.
+
+### Problems and fixes
+
+- Supertest could not bind a temporary port inside the restricted sandbox
+  (`listen EPERM`). The identical API test passed outside that restriction.
+
+### Remaining
+
+- The core container command targets `core_service.app`, which Task 3 creates.
+- Full `docker compose up --build` verification follows once Tasks 2 and 3 add
+  portable storage and the core HTTP service.
