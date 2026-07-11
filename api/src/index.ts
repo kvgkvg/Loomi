@@ -87,6 +87,18 @@ app.post('/api/explain', async (req: Request, res: Response) => {
   }
 });
 
+app.get('/api/runs', async (req: Request, res: Response) => {
+  try {
+    const limit = req.query.limit ? Number(req.query.limit) : 20;
+    const response = await axios.get(`${CORE_URL}/runs`, { params: { limit } });
+    res.json(response.data);
+  } catch (err: any) {
+    const status = err.response?.status || 500;
+    const message = err.response?.data?.detail || err.message;
+    res.status(status).json({ error: message });
+  }
+});
+
 app.get('/api/asset/:id', async (req: Request, res: Response) => {
   try {
     const assetId = z.string().uuid("Invalid asset ID format").parse(req.params.id);

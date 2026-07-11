@@ -3,6 +3,7 @@ import os
 import subprocess
 import asyncio
 import json
+import time
 from pathlib import Path
 from contextlib import asynccontextmanager
 from typing import Set
@@ -50,6 +51,113 @@ class EventBroadcaster:
                 await queue.put(event)
 
 event_broadcaster = EventBroadcaster()
+
+# Captured in lifespan so worker threads can broadcast onto the event loop
+MAIN_LOOP: asyncio.AbstractEventLoop | None = None
+
+def _parse_signal(raw_signal) -> dict:
+    if isinstance(raw_signal, str):
+        try:
+            return json.loads(raw_signal or "{}")
+        except Exception:
+            return {}
+    return raw_signal or {}
+
+def _json_len(value) -> int:
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except Exception:
+            return 0
+    return len(value) if isinstance(value, list) else 0
+
+def _run_header(run_id: str, signal: dict, title, received_at=None, status: str = "running") -> dict:
+    sha = signal.get("commit_sha") or ""
+    return {
+        "run_id": run_id,
+        "sha": sha[:7],
+        "full_sha": sha,
+        "message": title or "",
+        "author": signal.get("author_name") or "",
+        "files": signal.get("paths") or [],
+        "received_at": str(received_at) if received_at else None,
+        "status": status,
+    }
+
+def _build_stages(header: dict, detail: dict) -> list[dict]:
+    """Build the six pipeline stages with real run data.
+
+    detail keys: asset_id, version_id, version_number, problem, confidence,
+    constraints_count, failed_count, error (error marks the LLM stage failed).
+    """
+    sha = header["full_sha"]
+    paths = header["files"]
+    stages: list[dict] = []
+
+    def add(key, status, log, result=None):
+        stages.append({"key": key, "status": status, "log": log, "result": result or {}})
+
+    add("adapter", "success", [
+        f"$ git rev-parse --verify {sha[:12]}^{{commit}}",
+        f"Filtered {len(paths)} supported file{'s' if len(paths) != 1 else ''}: {', '.join(paths)}",
+        f"Captured author {header['author']} + diff",
+        "Persisted raw_events row (processed=0)",
+    ], {"source_tool": "git", "title": header["message"], "paths": ", ".join(paths)})
+
+    error = detail.get("error")
+    if error:
+        add("version", "success", [
+            "Computed asset_key = sha256(repository_root + sorted(paths))",
+        ], {})
+        add("llm", "failed", [
+            "POST https://api.featherless.ai/v1/chat/completions",
+            "model=zai-org/GLM-5.2 temperature=0.1",
+            f"⚠ {error}",
+            "Transaction rolled back — raw event left processed=0 for retry",
+        ], {"error": error})
+        for key in ("persist", "embed", "finalize"):
+            add(key, "skipped", [], {})
+        return stages
+
+    version_label = f"v{detail['version_number']}" if detail.get("version_number") else "row"
+    add("version", "success", [
+        "Computed asset_key = sha256(repository_root + sorted(paths))",
+        f"asset_id {detail.get('asset_id') or ''}",
+        f"Inserted asset_versions {version_label}",
+    ], {"asset_id": detail.get("asset_id"), "version": detail.get("version_number")})
+    add("llm", "success", [
+        "POST https://api.featherless.ai/v1/chat/completions",
+        "model=zai-org/GLM-5.2 temperature=0.1",
+        f"problem: \"{detail.get('problem') or ''}\"",
+        f"constraints: {detail.get('constraints_count', 0)} · failed_attempts: {detail.get('failed_count', 0)}",
+    ], {"problem": detail.get("problem"), "confidence": detail.get("confidence")})
+    add("persist", "success", [
+        "INSERT INTO rationale (problem, failed_attempts, constraints, confidence)",
+        f"confidence: {detail.get('confidence')}",
+    ], {"table": "rationale", "confidence": detail.get("confidence")})
+    add("embed", "success", [
+        "Embedding content + problem (all-MiniLM-L6-v2)",
+        f"Upserted vector id={detail.get('asset_id')} into Chroma",
+    ], {"vector_id": detail.get("asset_id"), "version_id": detail.get("version_id")})
+    add("finalize", "success", [
+        "UPDATE assets SET current_version_id = …",
+        "UPDATE raw_events SET processed = 1",
+        "COMMIT transaction",
+        "Pipeline complete ✓",
+    ], {"asset_id": detail.get("asset_id"), "version_id": detail.get("version_id"), "embedded": True})
+    return stages
+
+def _emit_stage(header: dict, stage: str, status: str, log=None, result=None):
+    """Broadcast a pipeline_stage event from a worker thread."""
+    if MAIN_LOOP is None:
+        return
+    payload = {"run": header, "stage": stage, "status": status, "log": log or [], "result": result or {}}
+    try:
+        asyncio.run_coroutine_threadsafe(
+            event_broadcaster.broadcast("pipeline_stage", payload), MAIN_LOOP
+        )
+    except Exception:
+        logger.warning("Failed to emit pipeline_stage event", exc_info=True)
 
 # Helper Git command runner
 def run_git(args: list[str], cwd: Path) -> str:
@@ -158,9 +266,43 @@ def poll_git_repo(repo_path: Path) -> list[dict]:
                 logger.info(f"Git poller capturing new commit: {sha}")
                 capture_res = capture_commit(sha)
                 raw_event_id = capture_res["raw_event_id"]
-                
+
+                signal = _parse_signal(capture_res["raw_signal"])
+                header = _run_header(sha, signal, capture_res["title"])
+                adapter_stage = _build_stages(header, {})[0]
+                _emit_stage(header, "adapter", "success", adapter_stage["log"], adapter_stage["result"])
+                _emit_stage(header, "version", "running", ["Computing asset_key = sha256(repository_root + sorted(paths))"])
+                _emit_stage(header, "llm", "running", [
+                    "POST https://api.featherless.ai/v1/chat/completions",
+                    "model=zai-org/GLM-5.2 temperature=0.1",
+                    "Waiting for completion…",
+                ])
+
                 logger.info(f"Git poller processing raw event: {raw_event_id}")
                 process_res = process_raw_event(raw_event_id)
+
+                if process_res.get("error"):
+                    for stage in _build_stages(header, {"error": process_res["error"]})[1:]:
+                        _emit_stage(header, stage["key"], stage["status"], stage["log"], stage["result"])
+                        time.sleep(0.2)
+                else:
+                    rationale = process_res.get("rationale") or {}
+                    version_row = connection.execute(
+                        "SELECT version_number FROM asset_versions WHERE id = ?",
+                        (process_res["version_id"],)
+                    ).fetchone()
+                    detail = {
+                        "asset_id": process_res["asset_id"],
+                        "version_id": process_res["version_id"],
+                        "version_number": version_row["version_number"] if version_row else None,
+                        "problem": rationale.get("problem"),
+                        "confidence": rationale.get("confidence"),
+                        "constraints_count": _json_len(rationale.get("constraints")),
+                        "failed_count": _json_len(rationale.get("failed_attempts")),
+                    }
+                    for stage in _build_stages(header, detail)[1:]:
+                        _emit_stage(header, stage["key"], stage["status"], stage["log"], stage["result"])
+                        time.sleep(0.35)
 
                 if process_res.get("embedded"):
                     details = get_asset_details(connection, process_res["asset_id"])
@@ -211,6 +353,8 @@ async def git_poller_task():
 # Lifespan manager
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global MAIN_LOOP
+    MAIN_LOOP = asyncio.get_running_loop()
     # Trust the workspace directory for Git command line running under different ownership inside container
     try:
         subprocess.run(["git", "config", "--global", "--add", "safe.directory", "*"], check=True)
@@ -279,6 +423,53 @@ def health_check():
         "database": "ok",
         "vector_store": "ok"
     }
+
+@app.get("/runs")
+async def runs_endpoint(limit: int = 20):
+    def fetch():
+        conn = get_pg_connection()
+        try:
+            rows = conn.execute(
+                """
+                SELECT re.id, re.title, re.received_at, re.processed, re.raw_signal,
+                       av.id AS version_id, av.version_number, av.asset_id,
+                       r.problem, r.confidence, r.failed_attempts, r.constraints
+                FROM raw_events re
+                LEFT JOIN asset_versions av ON av.id = re.processed_asset_version_id
+                LEFT JOIN rationale r ON r.version_id = av.id
+                WHERE re.source_tool = 'git'
+                ORDER BY re.received_at DESC
+                LIMIT ?
+                """,
+                (limit,)
+            ).fetchall()
+            runs = []
+            for row in rows:
+                signal = _parse_signal(row["raw_signal"])
+                run_id = signal.get("commit_sha") or row["id"]
+                processed = bool(row["processed"])
+                header = _run_header(
+                    run_id, signal, row["title"], row["received_at"],
+                    "success" if processed else "failed",
+                )
+                if processed:
+                    detail = {
+                        "asset_id": row["asset_id"],
+                        "version_id": row["version_id"],
+                        "version_number": row["version_number"],
+                        "problem": row["problem"],
+                        "confidence": row["confidence"],
+                        "constraints_count": _json_len(row["constraints"]),
+                        "failed_count": _json_len(row["failed_attempts"]),
+                    }
+                else:
+                    detail = {"error": "Pipeline did not complete — raw event left processed=0 for retry"}
+                runs.append({**header, "stages": _build_stages(header, detail)})
+            return runs
+        finally:
+            conn.close()
+
+    return {"runs": await anyio.to_thread.run_sync(fetch)}
 
 @app.get("/asset/{asset_id}")
 async def asset_endpoint(asset_id: str):

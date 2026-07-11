@@ -1,0 +1,268 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1783786201125,
+  "projectRoot": "/home/kvgkvg/Documents/project/Loomi",
+  "techStack": {
+    "languages": [
+      {
+        "name": "Python",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "requirements.txt"
+        ]
+      }
+    ],
+    "frameworks": [],
+    "packageManager": "pip",
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": null,
+    "testCommand": null,
+    "lintCommand": null,
+    "devCommand": null,
+    "scripts": {}
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [
+      "docs",
+      "tests"
+    ],
+    "gitBranches": {
+      "defaultBranch": "main",
+      "branchingStrategy": null
+    }
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "adapters": {
+      "path": "adapters",
+      "purpose": null,
+      "fileCount": 2,
+      "lastAccessed": 1783786201123,
+      "keyFiles": [
+        "__init__.py",
+        "git_adapter.py"
+      ]
+    },
+    "capture_pipeline": {
+      "path": "capture_pipeline",
+      "purpose": null,
+      "fileCount": 3,
+      "lastAccessed": 1783786201124,
+      "keyFiles": [
+        "__init__.py",
+        "llm.py",
+        "process.py"
+      ]
+    },
+    "db": {
+      "path": "db",
+      "purpose": null,
+      "fileCount": 5,
+      "lastAccessed": 1783786201124,
+      "keyFiles": [
+        "__init__.py",
+        "client.py",
+        "loomi.db",
+        "schema.sql",
+        "seed.py"
+      ]
+    },
+    "docs": {
+      "path": "docs",
+      "purpose": "Documentation",
+      "fileCount": 0,
+      "lastAccessed": 1783786201124,
+      "keyFiles": []
+    },
+    "memory": {
+      "path": "memory",
+      "purpose": null,
+      "fileCount": 4,
+      "lastAccessed": 1783786201125,
+      "keyFiles": [
+        "an.md",
+        "khang.md",
+        "onboarding-assistant.md",
+        "recommend-hong.md"
+      ]
+    },
+    "onboarding": {
+      "path": "onboarding",
+      "purpose": null,
+      "fileCount": 2,
+      "lastAccessed": 1783786201125,
+      "keyFiles": [
+        "__init__.py",
+        "assistant.py"
+      ]
+    },
+    "recommend": {
+      "path": "recommend",
+      "purpose": null,
+      "fileCount": 4,
+      "lastAccessed": 1783786201125,
+      "keyFiles": [
+        "__init__.py",
+        "__main__.py",
+        "engine.py",
+        "scoring.py"
+      ]
+    },
+    "tests": {
+      "path": "tests",
+      "purpose": "Test files",
+      "fileCount": 5,
+      "lastAccessed": 1783786201125,
+      "keyFiles": [
+        "__init__.py",
+        "conftest.py",
+        "test_engine.py",
+        "test_onboarding_assistant.py",
+        "test_scoring.py"
+      ]
+    },
+    "docs/components": {
+      "path": "docs/components",
+      "purpose": "UI components",
+      "fileCount": 1,
+      "lastAccessed": 1783786201125,
+      "keyFiles": [
+        "git-capture-pipeline.md"
+      ]
+    }
+  },
+  "hotPaths": [
+    {
+      "path": "core/app.py",
+      "accessCount": 10,
+      "lastAccessed": 1783806175456,
+      "type": "file"
+    },
+    {
+      "path": "docker-compose.yml",
+      "accessCount": 6,
+      "lastAccessed": 1783804771548,
+      "type": "file"
+    },
+    {
+      "path": "capture_pipeline/chat_process.py",
+      "accessCount": 3,
+      "lastAccessed": 1783787880775,
+      "type": "file"
+    },
+    {
+      "path": "frontend/app/page.tsx",
+      "accessCount": 3,
+      "lastAccessed": 1783804318000,
+      "type": "file"
+    },
+    {
+      "path": "api/src/index.ts",
+      "accessCount": 3,
+      "lastAccessed": 1783806184715,
+      "type": "file"
+    },
+    {
+      "path": "adapters/chat_adapter.py",
+      "accessCount": 2,
+      "lastAccessed": 1783787843420,
+      "type": "file"
+    },
+    {
+      "path": "db/schema_pg.sql",
+      "accessCount": 2,
+      "lastAccessed": 1783799068529,
+      "type": "file"
+    },
+    {
+      "path": "adapters/git_adapter.py",
+      "accessCount": 2,
+      "lastAccessed": 1783806043001,
+      "type": "file"
+    },
+    {
+      "path": "frontend/app/pipeline/page.tsx",
+      "accessCount": 2,
+      "lastAccessed": 1783806278379,
+      "type": "file"
+    },
+    {
+      "path": "capture_pipeline/rationale_statements.py",
+      "accessCount": 1,
+      "lastAccessed": 1783786510179,
+      "type": "file"
+    },
+    {
+      "path": "rationale/review.py",
+      "accessCount": 1,
+      "lastAccessed": 1783786511209,
+      "type": "file"
+    },
+    {
+      "path": "tests/integration/test_prompt_history_review.py",
+      "accessCount": 1,
+      "lastAccessed": 1783787725095,
+      "type": "file"
+    },
+    {
+      "path": "tests/capture_pipeline/test_chat_process.py",
+      "accessCount": 1,
+      "lastAccessed": 1783787725363,
+      "type": "file"
+    },
+    {
+      "path": "README.md",
+      "accessCount": 1,
+      "lastAccessed": 1783797906304,
+      "type": "file"
+    },
+    {
+      "path": "memory/web-demo.md",
+      "accessCount": 1,
+      "lastAccessed": 1783797916525,
+      "type": "file"
+    },
+    {
+      "path": "delivery/app.py",
+      "accessCount": 1,
+      "lastAccessed": 1783797917142,
+      "type": "file"
+    },
+    {
+      "path": "prompts/release-notes-generator.md",
+      "accessCount": 1,
+      "lastAccessed": 1783798739801,
+      "type": "file"
+    },
+    {
+      "path": "onboarding/assistant.py",
+      "accessCount": 1,
+      "lastAccessed": 1783799017910,
+      "type": "file"
+    },
+    {
+      "path": "db/schema.sql",
+      "accessCount": 1,
+      "lastAccessed": 1783799048446,
+      "type": "file"
+    },
+    {
+      "path": "capture_pipeline/process.py",
+      "accessCount": 1,
+      "lastAccessed": 1783805973629,
+      "type": "file"
+    }
+  ],
+  "userDirectives": []
+}

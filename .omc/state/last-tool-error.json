@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"ls /usr/bin | grep -i -E 'chromium|chrome|firefox' ; ls ~/.cache/ms-playwright 2>/dev/null\",\"description\":\"Look for system browser binaries\"}",
+  "error": "Exit code 2\nchromedriver\nchromium\nfirefox",
+  "timestamp": "2026-07-11T21:13:26.401Z",
+  "retry_count": 1
+}
