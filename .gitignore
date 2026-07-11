@@ -1,1 +1,10 @@
 .worktrees/
+.env
+.loomi/
+*.sqlite
+*.sqlite3
+chroma/
+.pytest_cache/
+__pycache__/
+*.py[cod]
+.cache/
