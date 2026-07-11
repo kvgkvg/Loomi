@@ -114,3 +114,47 @@ conda run -n loomi-an pytest tests/integration/test_featherless_live.py -v
 - Storage access: only through `db/client.py`
 
 See [component design](docs/components/git-capture-pipeline.md) for data flow and extension rules.
+
+## Prompt History, Rationale Review, and Role-Aware Views
+
+Import a ChatGPT or Claude JSON export, then generate pending rationale:
+
+```python
+import json
+from adapters.chat_adapter import capture_chat_export
+from capture_pipeline.chat_process import process_chat_event
+
+payload = json.load(open("conversation.json"))
+event = capture_chat_export(payload, "claude")  # or "chatgpt"
+pending = process_chat_event(event["raw_event_id"])
+```
+
+LLM statements are not trusted until user review:
+
+```python
+from rationale.review import list_pending_statements, review_statement
+
+item = list_pending_statements()[0]
+review_statement(item["id"], "approve", reviewer_id="<existing-user-id>")
+# Other actions: "edit" with edited_statement=..., or "reject".
+```
+
+Approval refreshes compact rationale and the asset's Chroma document. Pending and rejected statements never affect search or normal onboarding.
+
+Pass a role for personalized ranking and explanation:
+
+```python
+from recommend.engine import recommend
+from onboarding.assistant import explain_asset
+
+results = recommend("produce reliable structured output", role="Tech Lead")
+explanation = explain_asset(results[0]["asset_id"], role="Intern")
+```
+
+Run the review/discovery UI after installing requirements:
+
+```bash
+streamlit run delivery/app.py
+```
+
+Built-in role lenses: Intern, Developer, Tech Lead, Manager. Other role names use validated Featherless output with a Developer-like fallback.

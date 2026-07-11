@@ -65,3 +65,29 @@
 ### Next step
 
 - Implementation plan must include review state transitions, trusted-rationale promotion, Chroma refresh after approval, and negative tests for pending/rejected leakage.
+
+## 2026-07-11 — implementation
+
+### Completed
+
+- Added relational conversation, turn, feedback, rationale-statement, citation, and review schema.
+- Added ChatGPT/Claude export normalization, deterministic raw-event capture, and secret redaction.
+- Added Featherless boundary for cited observed/inferred rationale statements.
+- Added transactional chat processing that stores distilled prompt assets with pending rationale and no premature vector indexing.
+- Added approve, edit-and-approve, reject, audit attribution, trusted-summary promotion, and Chroma refresh.
+- Added deterministic role presets plus validated LLM lens for custom roles.
+- Added optional role-aware recommendation and onboarding while keeping legacy calls compatible.
+- Added Streamlit import, rationale review, discovery, and explanation UI.
+- Added vertical integration coverage from export through approval and role-aware reuse.
+
+### Decisions
+
+- Pending review is a valid processed state, not a capture failure.
+- Only approved/edited statements build compact `rationale` and Chroma documents.
+- Role boost is capped at 0.2 and blended with base score so semantic relevance remains dominant.
+- Streamlit import is lazy so core/test environments do not require UI import at module load.
+
+### Verification so far
+
+- Focused relational/mocked suite: 61 passed.
+- Full real-Chroma verification remains the final step; earlier baseline runs blocked during embedding initialization.
