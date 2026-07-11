@@ -132,16 +132,30 @@ def capture_chat_export(payload: dict, source_tool: str) -> dict:
     signal = json.dumps(normalized, ensure_ascii=False, sort_keys=True)
     connection = get_pg_connection()
     try:
-        connection.execute(
-            """
-            INSERT INTO raw_events (id, source_tool, title, content, raw_signal, processed)
-            VALUES (?, ?, ?, ?, ?, 0)
-            ON CONFLICT(id) DO UPDATE SET
-              title=excluded.title, content=excluded.content, raw_signal=excluded.raw_signal
-            """,
-            (event_id, source_tool, normalized["title"], content, signal),
-        )
-        connection.commit()
+        existing = connection.execute(
+            "SELECT raw_signal FROM raw_events WHERE id = ?", (event_id,)
+        ).fetchone()
+        if existing is None:
+            connection.execute(
+                """
+                INSERT INTO raw_events (id, source_tool, title, content, raw_signal, processed)
+                VALUES (?, ?, ?, ?, ?, 0)
+                """,
+                (event_id, source_tool, normalized["title"], content, signal),
+            )
+            connection.commit()
+        elif existing["raw_signal"] != signal:
+            # Conversation changed since last capture: refresh payload and
+            # reopen the event so the pipeline distills a new version.
+            connection.execute(
+                """
+                UPDATE raw_events
+                SET title = ?, content = ?, raw_signal = ?, processed = 0
+                WHERE id = ?
+                """,
+                (normalized["title"], content, signal, event_id),
+            )
+            connection.commit()
     finally:
         connection.close()
     return {"raw_event_id": event_id, "source_tool": source_tool, "turn_count": len(normalized["turns"])}

@@ -42,19 +42,34 @@ def process_chat_event(raw_event_id: str) -> dict:
         if not isinstance(turns, list) or not isinstance(external_id, str):
             return _failure("Invalid chat event")
 
-        connection.execute("BEGIN")
         conversation_id = _id("conversation", f"{event['source_tool']}:{external_id}")
+        existing_turn_ids = {
+            row[0]
+            for row in connection.execute(
+                "SELECT id FROM conversation_turns WHERE conversation_id = ?", (conversation_id,)
+            )
+        }
+
+        connection.execute("BEGIN")
         connection.execute(
-            "INSERT INTO conversations (id, source_tool, external_conversation_id, title) VALUES (?, ?, ?, ?)",
+            """
+            INSERT INTO conversations (id, source_tool, external_conversation_id, title)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET title=excluded.title
+            """,
             (conversation_id, event["source_tool"], external_id, event["title"]),
         )
         internal_turns = []
         external_to_internal = {}
+        new_turn_count = 0
         for sequence, turn in enumerate(turns, 1):
             turn_id = _id("turn", f"{conversation_id}:{turn.get('external_id') or sequence}")
             external_to_internal[turn.get("external_id")] = turn_id
             content = str(turn.get("content") or "")
             internal_turns.append({"id": turn_id, "role": turn.get("role"), "content": content})
+            if turn_id in existing_turn_ids:
+                continue
+            new_turn_count += 1
             connection.execute(
                 """
                 INSERT INTO conversation_turns
@@ -73,14 +88,34 @@ def process_chat_event(raw_event_id: str) -> dict:
         if not user_prompts:
             raise ValueError("conversation has no user prompt")
         asset_id = _id("asset", f"chat:{event['source_tool']}:{external_id}")
-        version_id = _id("version", raw_event_id)
         connection.execute(
-            "INSERT INTO assets (id, asset_key, type, title, source_tool) VALUES (?, ?, 'prompt', ?, ?)",
+            """
+            INSERT INTO assets (id, asset_key, type, title, source_tool) VALUES (?, ?, 'prompt', ?, ?)
+            ON CONFLICT(id) DO NOTHING
+            """,
             (asset_id, f"chat:{event['source_tool']}:{external_id}", event["title"] or "Imported prompt", event["source_tool"]),
         )
+        version_number = connection.execute(
+            "SELECT COALESCE(MAX(version_number), 0) + 1 FROM asset_versions WHERE asset_id = ?",
+            (asset_id,),
+        ).fetchone()[0]
+        if version_number > 1 and new_turn_count == 0:
+            # Reprocessing without any new content: close the event against the
+            # latest version instead of minting a duplicate.
+            latest_version_id = connection.execute(
+                "SELECT id FROM asset_versions WHERE asset_id = ? ORDER BY version_number DESC LIMIT 1",
+                (asset_id,),
+            ).fetchone()[0]
+            connection.execute(
+                "UPDATE raw_events SET processed = 1, processed_asset_version_id = ? WHERE id = ?",
+                (latest_version_id, raw_event_id),
+            )
+            connection.commit()
+            return _persisted(connection, raw_event_id)
+        version_id = _id("version", f"{raw_event_id}:{version_number}")
         connection.execute(
-            "INSERT INTO asset_versions (id, asset_id, raw_event_id, version_number, content, diff_summary) VALUES (?, ?, ?, 1, ?, ?)",
-            (version_id, asset_id, raw_event_id, user_prompts[-1], "Distilled from prompt history"),
+            "INSERT INTO asset_versions (id, asset_id, raw_event_id, version_number, content, diff_summary) VALUES (?, ?, ?, ?, ?, ?)",
+            (version_id, asset_id, raw_event_id, version_number, user_prompts[-1], "Distilled from prompt history"),
         )
         statements = extract_rationale_statements(internal_turns)
         statement_ids = []
