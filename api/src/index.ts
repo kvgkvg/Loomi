@@ -55,6 +55,47 @@ app.get('/api/health', async (req: Request, res: Response) => {
   }
 });
 
+app.get('/api/repo-info', async (req: Request, res: Response) => {
+  try {
+    const response = await axios.get(`${CORE_URL}/repo-info`, { timeout: 3000 });
+    res.json(response.data);
+  } catch (err: any) {
+    res.status(503).json({ error: err.message });
+  }
+});
+
+const TrackSchema = z.object({
+  repo: z.string().min(1, "Repo cannot be empty")
+});
+
+app.post('/api/track', async (req: Request, res: Response) => {
+  try {
+    const body = TrackSchema.parse(req.body);
+    // Cloning a remote repo can take a while; allow a generous timeout.
+    const response = await axios.post(`${CORE_URL}/track`, body, { timeout: 120000 });
+    res.json(response.data);
+  } catch (err: any) {
+    if (err instanceof z.ZodError) {
+      res.status(400).json({ error: 'Validation failed', details: err.errors });
+    } else {
+      const status = err.response?.status || 500;
+      const message = err.response?.data?.detail || err.message;
+      res.status(status).json({ error: message });
+    }
+  }
+});
+
+app.get('/api/asset/:id', async (req: Request, res: Response) => {
+  try {
+    const response = await axios.get(`${CORE_URL}/asset/${encodeURIComponent(req.params.id)}`, { timeout: 5000 });
+    res.json(response.data);
+  } catch (err: any) {
+    const status = err.response?.status || 500;
+    const message = err.response?.data?.detail || err.message;
+    res.status(status).json({ error: message });
+  }
+});
+
 app.post('/api/recommend', async (req: Request, res: Response) => {
   try {
     const body = RecommendSchema.parse(req.body);

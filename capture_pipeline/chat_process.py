@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import uuid
 
 from capture_pipeline.rationale_statements import extract_rationale_statements
@@ -103,6 +104,7 @@ def process_chat_event(raw_event_id: str) -> dict:
         connection.commit()
         return {"asset_id": asset_id, "version_id": version_id, "statement_ids": statement_ids, "review_status": "pending", "error": None}
     except Exception:
+        logging.getLogger(__name__).exception("Chat pipeline processing failed for %s", raw_event_id)
         connection.rollback()
         return _failure("Chat pipeline processing failed")
     finally:

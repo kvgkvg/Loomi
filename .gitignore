@@ -34,3 +34,6 @@ dist/
 .next/
 *.log
 npm_install.log
+
+# external demo repos
+.demo-repos/

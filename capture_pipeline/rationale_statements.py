@@ -20,7 +20,10 @@ _KINDS = {"observed", "inferred"}
 _SYSTEM = """Extract and enhance rationale from prompt history. Return JSON object with a statements array.
 Each statement requires statement_type, statement, evidence_kind (observed or inferred), confidence 0..1,
 source_turn_ids, source_version_ids, source_commit_ids, and alternative_explanation. Cite only supplied IDs.
-Observed means explicit text. Inferred means a supported hypothesis. No markdown."""
+statement_type MUST be exactly one of: problem, intent, constraint, failed_attempt, outcome — no other value.
+evidence_kind MUST be exactly observed or inferred. Observed means explicit text. Inferred means a supported
+hypothesis. source_turn_ids may only contain id values copied verbatim from the supplied turns; when no
+version or commit IDs are supplied, source_version_ids and source_commit_ids MUST be empty arrays. No markdown."""
 
 
 def _strip_fence(text: str) -> str:

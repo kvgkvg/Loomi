@@ -1,8 +1,10 @@
 import logging
 import os
+import re
 import subprocess
 import asyncio
 import json
+import threading
 from pathlib import Path
 from contextlib import asynccontextmanager
 from typing import Set
@@ -51,6 +53,57 @@ class EventBroadcaster:
 
 event_broadcaster = EventBroadcaster()
 
+# Resolve the repository the git poller / manual capture should target.
+def resolve_repo_path() -> Path:
+    repo_path_str = os.environ.get("LOOMI_REPO_PATH")
+    if not repo_path_str:
+        try:
+            repo_path_str = run_git(["rev-parse", "--show-toplevel"], Path("."))
+        except Exception:
+            repo_path_str = str(Path(__file__).resolve().parent.parent)
+    return Path(repo_path_str).resolve()
+
+# Mutable repository the poller currently tracks (switchable at runtime via /track).
+_tracked_repo: Path | None = None
+_tracked_lock = threading.Lock()
+
+# Directory (inside a writable bind mount) where /track clones remote repos.
+_CLONE_DIR = Path("/app/.demo-repos")
+
+# Where the host home directory is bind-mounted read-only (docker-compose).
+_HOST_MOUNT = Path("/host")
+
+def _translate_host_path(target: str) -> Path:
+    """Map a host filesystem path to its /host bind-mount equivalent.
+
+    Users paste local paths as they see them on the host (~/x or $HOME/x).
+    Inside the container those live under /host. Paths already visible in the
+    container are returned unchanged.
+    """
+    candidate = Path(target)
+    if candidate.exists():
+        return candidate
+    host_home = (os.environ.get("LOOMI_HOST_HOME") or "").rstrip("/")
+    if target.startswith("~/"):
+        translated = _HOST_MOUNT / target[2:]
+    elif host_home and (target == host_home or target.startswith(host_home + "/")):
+        translated = _HOST_MOUNT / target[len(host_home) :].lstrip("/")
+    else:
+        return candidate
+    return translated if translated.exists() else candidate
+
+def get_tracked_repo() -> Path:
+    global _tracked_repo
+    with _tracked_lock:
+        if _tracked_repo is None:
+            _tracked_repo = resolve_repo_path()
+        return _tracked_repo
+
+def set_tracked_repo(repo: Path) -> None:
+    global _tracked_repo
+    with _tracked_lock:
+        _tracked_repo = repo
+
 # Helper Git command runner
 def run_git(args: list[str], cwd: Path) -> str:
     completed = subprocess.run(
@@ -66,7 +119,7 @@ def run_git(args: list[str], cwd: Path) -> str:
 def is_commit_captured(connection, commit_sha: str) -> bool:
     pattern = f'%"commit_sha": "{commit_sha}"%'
     row = connection.execute(
-        "SELECT id FROM raw_events WHERE source_tool = 'git' AND raw_signal LIKE ?",
+        "SELECT id FROM raw_events WHERE source_tool = 'git' AND CAST(raw_signal AS TEXT) LIKE ?",
         (pattern,)
     ).fetchone()
     return row is not None
@@ -156,7 +209,7 @@ def poll_git_repo(repo_path: Path) -> list[dict]:
 
             try:
                 logger.info(f"Git poller capturing new commit: {sha}")
-                capture_res = capture_commit(sha)
+                capture_res = capture_commit(sha, repo_path)
                 raw_event_id = capture_res["raw_event_id"]
                 
                 logger.info(f"Git poller processing raw event: {raw_event_id}")
@@ -185,18 +238,11 @@ def poll_git_repo(repo_path: Path) -> list[dict]:
 # Background poller loop
 async def git_poller_task():
     logger.info("Git poller background task started.")
-    repo_path_str = os.environ.get("LOOMI_REPO_PATH")
-    if not repo_path_str:
-        try:
-            repo_path_str = run_git(["rev-parse", "--show-toplevel"], Path("."))
-        except Exception:
-            repo_path_str = str(Path(__file__).resolve().parent.parent)
-
-    repo_path = Path(repo_path_str).resolve()
-    logger.info(f"Git poller monitoring repository at: {repo_path}")
+    logger.info(f"Git poller monitoring repository at: {get_tracked_repo()}")
 
     while True:
         try:
+            repo_path = get_tracked_repo()
             new_events = await anyio.to_thread.run_sync(poll_git_repo, repo_path)
             for event_details in new_events:
                 await event_broadcaster.broadcast("memory_ready", event_details)
@@ -218,11 +264,37 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Failed to configure Git safe.directory: {e}")
 
+    # Pre-warm the client-side embedding model so the first user request does not
+    # pay the one-time model load/download (which otherwise looks like a UI freeze).
+    async def _warm_embeddings():
+        def _warm():
+            try:
+                get_vector_collection().query(query_texts=["warmup"], n_results=1)
+                logger.info("Embedding model warmed.")
+            except Exception as e:
+                logger.warning(f"Embedding warmup skipped: {e}")
+        await anyio.to_thread.run_sync(_warm)
+
     # Start poller loop if not in testing mode
     poller = None
+    warmup = None
     if os.environ.get("LOOMI_TESTING") != "1":
+        warmup = asyncio.create_task(_warm_embeddings())
         poller = asyncio.create_task(git_poller_task())
     yield
+    # Stop background tasks
+    if warmup:
+        warmup.cancel()
+        try:
+            await warmup
+        except asyncio.CancelledError:
+            pass
+    if poller:
+        poller.cancel()
+        try:
+            await poller
+        except asyncio.CancelledError:
+            pass
     # Stop poller loop
     if poller:
         poller.cancel()
@@ -249,6 +321,10 @@ class AdoptRequest(BaseModel):
     asset_id: str
     user_id: str | None = None
     task_description: str
+
+class TrackRequest(BaseModel):
+    # A git URL (https/git@) to clone, or a path already visible inside the container.
+    repo: str
 
 # Endpoints
 @app.get("/health")
@@ -280,6 +356,67 @@ def health_check():
         "vector_store": "ok"
     }
 
+@app.get("/repo-info")
+def repo_info():
+    """Report which repository the git poller is currently tracking."""
+    repo = get_tracked_repo()
+
+    def _g(args: list[str]) -> str | None:
+        try:
+            return run_git(args, repo)
+        except Exception:
+            return None
+
+    head = _g(["rev-parse", "HEAD"])
+    return {
+        "repo_path": str(repo),
+        "remote_url": _g(["config", "--get", "remote.origin.url"]),
+        "branch": _g(["rev-parse", "--abbrev-ref", "HEAD"]),
+        "head_sha": head,
+        "head_short": head[:7] if head else None,
+    }
+
+@app.post("/track")
+async def track_endpoint(req: TrackRequest):
+    """Switch the repository the poller tracks at runtime.
+
+    Accepts a git URL (cloned into a writable mount) or a path already visible
+    inside the container. Note: arbitrary host paths must be bind-mounted first.
+    """
+    target = (req.repo or "").strip()
+    if not target:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "repo is required")
+
+    def _resolve_and_set() -> Path:
+        if re.match(r"^(https?://|git@)", target):
+            name = re.sub(r"[^A-Za-z0-9._-]+", "-", target.rstrip("/").split("/")[-1])
+            name = re.sub(r"-?\.git$", "", name) or "repo"
+            dest = _CLONE_DIR / name
+            if not (dest / ".git").exists():
+                _CLONE_DIR.mkdir(parents=True, exist_ok=True)
+                subprocess.run(
+                    ["git", "clone", "--depth", "80", target, str(dest)],
+                    check=True, text=True, capture_output=True,
+                )
+            candidate = dest
+        else:
+            candidate = _translate_host_path(target)
+        if not candidate.exists():
+            raise ValueError(f"path not found in container: {candidate}")
+        root = run_git(["rev-parse", "--show-toplevel"], candidate)
+        repo = Path(root).resolve()
+        set_tracked_repo(repo)
+        logger.info(f"Now tracking repository: {repo}")
+        return repo
+
+    try:
+        await anyio.to_thread.run_sync(_resolve_and_set)
+    except subprocess.CalledProcessError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"git clone failed: {e.stderr or e}")
+    except Exception as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Cannot track repo: {e}")
+    return repo_info()
+
 @app.post("/recommend")
 async def recommend_endpoint(req: RecommendRequest):
     # Run the recommend call in a thread pool to avoid blocking the event loop
@@ -292,11 +429,82 @@ async def explain_endpoint(req: ExplainRequest):
     result = await anyio.to_thread.run_sync(explain_asset, req.asset_id, req.question)
     return result
 
+@app.get("/asset/{asset_id}")
+async def asset_endpoint(asset_id: str):
+    """Full asset detail: current content plus version history with rationale."""
+
+    def fetch():
+        conn = get_pg_connection()
+        try:
+            asset_row = conn.execute(
+                """
+                SELECT a.id AS asset_id, a.title AS title, a.type AS type,
+                       a.usage_count AS usage_count, u.name AS owner_name,
+                       av.content AS content
+                FROM assets a
+                LEFT JOIN users u ON a.owner_id = u.id
+                LEFT JOIN asset_versions av ON a.current_version_id = av.id
+                WHERE a.id = ?
+                """,
+                (asset_id,),
+            ).fetchone()
+            if asset_row is None:
+                return None
+
+            version_rows = conn.execute(
+                """
+                SELECT av.version_number AS version_number, av.created_at AS created_at,
+                       av.diff_summary AS diff_summary, r.problem AS problem,
+                       r.constraints AS constraints
+                FROM asset_versions av
+                LEFT JOIN rationale r ON r.version_id = av.id
+                WHERE av.asset_id = ?
+                ORDER BY av.version_number
+                """,
+                (asset_id,),
+            ).fetchall()
+
+            versions = []
+            for row in version_rows:
+                constraints = row["constraints"]
+                if isinstance(constraints, str):
+                    try:
+                        constraints = json.loads(constraints)
+                    except (TypeError, json.JSONDecodeError):
+                        constraints = []
+                versions.append(
+                    {
+                        "version_number": row["version_number"],
+                        "created_at": str(row["created_at"]) if row["created_at"] else None,
+                        "diff_summary": row["diff_summary"],
+                        "problem": row["problem"],
+                        "constraints": constraints or [],
+                    }
+                )
+
+            return {
+                "asset_id": asset_row["asset_id"],
+                "title": asset_row["title"],
+                "type": asset_row["type"],
+                "usage_count": asset_row["usage_count"],
+                "owner_name": asset_row["owner_name"] or "",
+                "content": asset_row["content"] or "",
+                "versions": versions,
+            }
+        finally:
+            conn.close()
+
+    result = await anyio.to_thread.run_sync(fetch)
+    if result is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Asset not found")
+    return result
+
 @app.post("/capture")
 async def capture_endpoint(req: CaptureRequest):
     try:
-        # Run capture and processing in thread pool
-        capture_res = await anyio.to_thread.run_sync(capture_commit, req.commit_sha)
+        # Run capture and processing in thread pool (target the monitored repo)
+        repo_path = get_tracked_repo()
+        capture_res = await anyio.to_thread.run_sync(capture_commit, req.commit_sha, repo_path)
         raw_event_id = capture_res["raw_event_id"]
         process_res = await anyio.to_thread.run_sync(process_raw_event, raw_event_id)
 

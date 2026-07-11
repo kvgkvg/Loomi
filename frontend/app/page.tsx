@@ -11,6 +11,22 @@ if (typeof window !== 'undefined') {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
+// Short human label for the tracked repo: "owner/repo" from the remote URL,
+// else the repo folder name from its path.
+function repoLabel(info: { repo_path?: string; remote_url?: string } | null): string {
+  if (!info) return '';
+  if (info.remote_url) {
+    const m = info.remote_url.match(/[:/]([^/]+\/[^/]+?)(?:\.git)?$/);
+    if (m) return m[1];
+    return info.remote_url;
+  }
+  if (info.repo_path) {
+    const parts = info.repo_path.replace(/\/+$/, '').split('/');
+    return parts[parts.length - 1] || info.repo_path;
+  }
+  return '';
+}
+
 interface GitEvent {
   asset_id: string;
   title: string;
@@ -35,6 +51,23 @@ interface Explanation {
   cited_constraints: string[];
 }
 
+interface AssetVersion {
+  version_number: number;
+  created_at: string | null;
+  diff_summary: string | null;
+  problem: string | null;
+  constraints: string[];
+}
+
+interface AssetDetail {
+  asset_id: string;
+  title: string;
+  owner_name: string;
+  usage_count: number;
+  content: string;
+  versions: AssetVersion[];
+}
+
 export default function Home() {
   // UI States
   const [health, setHealth] = useState<{ status: string; core_service?: any }>({ status: 'checking' });
@@ -48,6 +81,10 @@ export default function Home() {
   const [explanationQuestion, setExplanationQuestion] = useState('');
   const [isAskingQuestion, setIsAskingQuestion] = useState(false);
   const [adoptWarning, setAdoptWarning] = useState<string | null>(null);
+  const [repoInfo, setRepoInfo] = useState<{ repo_path?: string; remote_url?: string; branch?: string; head_short?: string } | null>(null);
+  const [trackInput, setTrackInput] = useState('');
+  const [isTracking, setIsTracking] = useState(false);
+  const [trackError, setTrackError] = useState<string | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const rationaleTextRef = useRef<HTMLDivElement>(null);
@@ -67,6 +104,14 @@ export default function Home() {
     checkHealth();
     const interval = setInterval(checkHealth, 10000);
     return () => clearInterval(interval);
+  }, []);
+
+  // Fetch which repository the poller is tracking
+  useEffect(() => {
+    fetch(`${API_BASE}/api/repo-info`)
+      .then(res => res.json())
+      .then(data => setRepoInfo(data))
+      .catch(() => setRepoInfo(null));
   }, []);
 
   // Server-Sent Events (SSE) stream for Git commits
@@ -176,60 +221,64 @@ export default function Home() {
     setAdoptWarning(null);
 
     try {
-      // 1. Fetch asset explanation (initial review with no specific question)
+      // Asset detail is fast (DB only) — show it immediately so the panel isn't
+      // blank for the many seconds the LLM explanation takes.
+      const assetRes = await fetch(`${API_BASE}/api/asset/${assetId}`);
+      const assetData: AssetDetail | { error?: string } = await assetRes.json();
+
+      if (assetRes.ok && 'asset_id' in assetData) {
+        setActiveAsset({
+          id: assetData.asset_id,
+          title: assetData.title,
+          owner: assetData.owner_name || foundGitOwner(assetId) || 'Unknown',
+          content: assetData.content,
+          versions: assetData.versions
+        });
+      } else {
+        setActiveAsset({
+          id: assetId,
+          title: ghostSuggestion?.asset_id === assetId ? ghostSuggestion.title : 'Asset Review',
+          owner: ghostSuggestion?.owner_name || foundGitOwner(assetId) || 'Unknown',
+          content: '',
+          versions: []
+        });
+      }
+
       const expRes = await fetch(`${API_BASE}/api/explain`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ asset_id: assetId })
       });
       const explanationData = await expRes.json();
-
-      // 2. We also need to get asset's content/details. Let's find it in our recommendations,
-      // or fetch it from explain response if it includes metadata.
-      // Since explain_asset returns explanation, cited_versions, cited_constraints.
-      // We will make a custom fetch for the asset versions if needed, or query it.
-      // But we can fetch it via another request. Wait, explain_asset return is:
-      // { explanation, cited_versions, cited_constraints }
-      // To display the original prompt content, we can fetch all versions. Let's add a backend mock or 
-      // check if explain_asset output can contain the content, or fetch details from explain_asset endpoint.
-      // Actually, we can get the details of the asset from our database. Let's query recommend or just mock.
-      // Since recommend returns the problem/owner, we can find it in our current lists or query `/explain`
-      // and adapt. Let's fetch the asset content by mock.
-      
-      // Let's get metadata from recommendations if we reviewed from suggestion:
-      let assetDetails = { id: assetId, title: 'Asset Review', content: 'Loading prompt...' };
-      if (ghostSuggestion && ghostSuggestion.asset_id === assetId) {
-        assetDetails = {
-          id: assetId,
-          title: ghostSuggestion.title,
-          content: ghostSuggestion.content || 'Content not cached'
-        };
-      } else {
-        // Find in gitEvents
-        const found = gitEvents.find(e => e.asset_id === assetId);
-        if (found) {
-          assetDetails = {
-            id: assetId,
-            title: found.title,
-            content: 'Content captured'
-          };
-        }
-      }
-
-      // To be robust, let's fetch version content. We will write a small version fetcher or proxy.
-      // But we can also retrieve it using a question since assistant explanation synthesized it.
-      // Let's call FastAPI /explain and display it.
-      // Let's assume explain_asset provides enough explanation.
-      setActiveAsset({
-        id: assetId,
-        title: assetDetails.title,
-        owner: ghostSuggestion?.owner_name || foundGitOwner(assetId) || 'An'
-      });
       setActiveExplanation(explanationData);
     } catch (err) {
       console.error("Error loading asset details:", err);
     } finally {
       setIsLoadingExplanation(false);
+    }
+  };
+
+  // Switch the repository the poller tracks (git URL or a container-visible path)
+  const handleTrack = async () => {
+    const repo = trackInput.trim();
+    if (!repo || isTracking) return;
+    setIsTracking(true);
+    setTrackError(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/track`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ repo })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to switch repository');
+      setRepoInfo(data);
+      setGitEvents([]); // new repo → fresh feed
+      setTrackInput('');
+    } catch (err: any) {
+      setTrackError(err.message || 'Failed to switch repository');
+    } finally {
+      setIsTracking(false);
     }
   };
 
@@ -266,16 +315,8 @@ export default function Home() {
   const handleAdopt = async () => {
     if (!activeAsset) return;
 
-    // Fetch the raw asset content to insert into composer.
-    // In our seed database, we can mock or fetch it.
-    // Let's query recommendations or gitEvents, or just fetch from an endpoint.
-    // Let's fetch the explanation as prompt. Actually, we can retrieve the prompt content.
-    // Let's call /recommend to get the exact asset details including content.
-    // Let's do a quick recommendation or assume a default content.
-    // Let's assume we copy a high-quality prompt template.
-    let promptContent = `[System Prompt: ${activeAsset.title}]\n\nRole: Lead Triage Agent\n\nInstructions:\n- Analyze incoming inputs\n- Triage based on priority\n- Maintain JSON output schema.`;
-    
-    // Set composer input
+    // Insert the real stored asset content into the composer
+    const promptContent = activeAsset.content || `[Prompt: ${activeAsset.title}] (content unavailable)`;
     setComposerInput(promptContent);
 
     // Record adoption in db/asset_usage
@@ -370,10 +411,37 @@ export default function Home() {
             borderRadius: 'var(--panel-radius)',
             backgroundColor: 'var(--panel-bg)'
           }}>
-            <h3 style={{ fontSize: '14px', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', marginBottom: '12px' }}>
+            <h3 style={{ fontSize: '14px', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', marginBottom: '4px' }}>
               Captured Git Knowledge Feed
             </h3>
-            
+            <div className="mono-text" style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+              {repoInfo ? (
+                <>
+                  Tracking: <span style={{ color: 'var(--accent-color)', fontWeight: 600 }}>{repoLabel(repoInfo)}</span>
+                  {repoInfo.branch ? <span> @ {repoInfo.branch}</span> : null}
+                  {repoInfo.head_short ? <span style={{ color: 'var(--text-secondary)' }}> ({repoInfo.head_short})</span> : null}
+                </>
+              ) : (
+                <span>Tracking: resolving repository…</span>
+              )}
+            </div>
+            <div style={{ display: 'flex', gap: '8px', marginBottom: trackError ? '6px' : '12px' }}>
+              <input
+                className="mono-text"
+                value={trackInput}
+                onChange={(e) => setTrackInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleTrack(); }}
+                placeholder="git URL or container path (e.g. https://github.com/owner/repo or /repo)"
+                style={{ flex: 1, fontSize: '12px', padding: '8px 10px', borderRadius: 'var(--input-radius)', border: '1px solid var(--border-color)', backgroundColor: 'transparent', color: 'var(--text-primary)' }}
+              />
+              <button className="btn btn-secondary" onClick={handleTrack} disabled={isTracking}>
+                {isTracking ? 'Switching…' : 'Track'}
+              </button>
+            </div>
+            {trackError ? (
+              <p style={{ fontSize: '12px', color: '#e5484d', marginBottom: '12px' }}>{trackError}</p>
+            ) : null}
+
             {gitEvents.length === 0 ? (
               <div style={{ padding: '24px 0', textAlign: 'center', color: 'var(--text-secondary)' }}>
                 <p style={{ fontSize: '14px' }}>No active Git events detected. Make a prompt commit to see Loomi capture it in real-time.</p>
@@ -527,13 +595,23 @@ export default function Home() {
                   <p style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>Owner: {activeAsset.owner}</p>
                 </div>
 
-                {isLoadingExplanation ? (
-                  <div style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-                    <span className="mono-text">Loading evidence...</span>
-                  </div>
-                ) : (
+                {(
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', flex: 1 }}>
-                    
+
+                    {/* Rationale loading hint (LLM synthesis takes a while) */}
+                    {isLoadingExplanation && !activeExplanation && (
+                      <div style={{
+                        padding: '16px',
+                        backgroundColor: 'var(--accent-soft)',
+                        borderRadius: 'var(--input-radius)',
+                        borderLeft: '4px solid var(--accent-color)'
+                      }}>
+                        <span className="mono-text" style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                          Synthesizing design rationale from version history…
+                        </span>
+                      </div>
+                    )}
+
                     {/* Scrubbed Text Reveal Rationale */}
                     {activeExplanation && (
                       <div ref={rationaleTextRef} style={{
@@ -556,6 +634,58 @@ export default function Home() {
                             <li key={i}>{c}</li>
                           ))}
                         </ul>
+                      </div>
+                    )}
+
+                    {/* Stored prompt content */}
+                    {activeAsset.content && (
+                      <div>
+                        <h4 style={{ fontSize: '14px', fontWeight: 600, marginBottom: '8px' }}>Stored Prompt Content</h4>
+                        <pre className="mono-text" style={{
+                          fontSize: '12px',
+                          padding: '12px',
+                          borderRadius: 'var(--input-radius)',
+                          border: '1px solid var(--border-color)',
+                          backgroundColor: 'transparent',
+                          whiteSpace: 'pre-wrap',
+                          wordBreak: 'break-word',
+                          maxHeight: '200px',
+                          overflowY: 'auto',
+                          margin: 0
+                        }}>{activeAsset.content}</pre>
+                      </div>
+                    )}
+
+                    {/* Version history */}
+                    {activeAsset.versions && activeAsset.versions.length > 0 && (
+                      <div>
+                        <h4 style={{ fontSize: '14px', fontWeight: 600, marginBottom: '8px' }}>Version History</h4>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                          {activeAsset.versions.map((v: AssetVersion) => {
+                            const cited = activeExplanation?.cited_versions?.includes(v.version_number);
+                            return (
+                              <div key={v.version_number} style={{
+                                padding: '10px 12px',
+                                borderRadius: 'var(--input-radius)',
+                                border: cited ? '1px solid var(--accent-color)' : '1px solid var(--border-color)',
+                                backgroundColor: cited ? 'var(--accent-soft)' : 'transparent'
+                              }}>
+                                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: v.problem ? '4px' : 0 }}>
+                                  <span className="mono-text" style={{ fontSize: '11px', fontWeight: 600, color: 'var(--accent-color)' }}>v{v.version_number}</span>
+                                  {v.created_at && (
+                                    <span className="mono-text" style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{v.created_at.slice(0, 19).replace('T', ' ')}</span>
+                                  )}
+                                  {cited && (
+                                    <span className="mono-text" style={{ fontSize: '10px', color: 'var(--accent-color)', border: '1px solid var(--accent-color)', borderRadius: '4px', padding: '0 4px' }}>CITED</span>
+                                  )}
+                                </div>
+                                {v.problem && (
+                                  <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{v.problem}</p>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
                       </div>
                     )}
 

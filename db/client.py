@@ -14,6 +14,7 @@ import os
 import sqlite3
 import sys
 import re
+import threading
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -199,23 +200,40 @@ def get_pg_connection():
     return conn
 
 
+_vector_collection = None
+_vector_lock = threading.Lock()
+
+
 def get_vector_collection():
     """Return the shared Chroma collection (persistent local OR remote server).
 
     Embeddings are Chroma-managed: callers pass documents=/query_texts= and Chroma
     embeds with its default function (all-MiniLM-L6-v2 ONNX). Do NOT pass your own
     embeddings — one embedding backend for the whole team.
+
+    The client + collection are memoized: building a Chroma client re-inits the
+    ONNX embedding function (hundreds of ms), so recreating it on every call
+    (health checks, every recommend) starves the caller's event loop.
     """
-    import chromadb
+    global _vector_collection
+    if _vector_collection is not None:
+        return _vector_collection
 
-    chroma_host = os.environ.get("CHROMA_HOST")
-    if chroma_host:
-        chroma_port = int(os.environ.get("CHROMA_PORT") or 8000)
-        client = chromadb.HttpClient(host=chroma_host, port=chroma_port)
-    else:
-        client = chromadb.PersistentClient(path=_chroma_path())
+    with _vector_lock:
+        if _vector_collection is not None:
+            return _vector_collection
 
-    return client.get_or_create_collection(
-        name=COLLECTION_NAME,
-        metadata={"hnsw:space": "cosine"},
-    )
+        import chromadb
+
+        chroma_host = os.environ.get("CHROMA_HOST")
+        if chroma_host:
+            chroma_port = int(os.environ.get("CHROMA_PORT") or 8000)
+            client = chromadb.HttpClient(host=chroma_host, port=chroma_port)
+        else:
+            client = chromadb.PersistentClient(path=_chroma_path())
+
+        _vector_collection = client.get_or_create_collection(
+            name=COLLECTION_NAME,
+            metadata={"hnsw:space": "cosine"},
+        )
+        return _vector_collection

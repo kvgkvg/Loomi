@@ -1,0 +1,42 @@
+{
+  "uuid": "demo-claude-contract-review-001",
+  "name": "Vendor contract risk review assistant",
+  "_loomi_owner": "Trí",
+  "chat_messages": [
+    {
+      "uuid": "turn-cr-1",
+      "sender": "human",
+      "created_at": "2026-07-09T14:02:00Z",
+      "model": "claude-sonnet-5",
+      "text": "Legal asked me for an AI assistant that flags risky clauses in vendor contracts before they reach counsel. My first attempt just said 'Review this contract and list problems' — it returned twenty vague bullets and missed the auto-renewal clause entirely."
+    },
+    {
+      "uuid": "turn-cr-2",
+      "sender": "assistant",
+      "created_at": "2026-07-09T14:03:05Z",
+      "model": "claude-sonnet-5",
+      "text": "Open-ended review prompts produce noise. Enumerate the exact clause categories legal cares about — auto-renewal, liability caps, indemnification, data processing, termination notice periods — and ask for a verdict per category. Absence of a clause is itself a finding."
+    },
+    {
+      "uuid": "turn-cr-3",
+      "sender": "human",
+      "created_at": "2026-07-09T14:11:30Z",
+      "model": "claude-sonnet-5",
+      "text": "Tried the category list. Much sharper, but two problems: it paraphrased clauses instead of quoting them, so legal couldn't verify without rereading the contract, and it gave legal advice ('you should negotiate X') which compliance says we cannot do — the tool must only flag, never advise."
+    },
+    {
+      "uuid": "turn-cr-4",
+      "sender": "assistant",
+      "created_at": "2026-07-09T14:12:40Z",
+      "model": "claude-sonnet-5",
+      "text": "Require verbatim quotes with section numbers for every flag, and constrain the output to classification only: clause category, exact quote, section reference, and a risk level — no recommendations. Add an explicit refusal rule: if asked for advice, respond that the tool only flags clauses for counsel review."
+    },
+    {
+      "uuid": "turn-cr-5",
+      "sender": "human",
+      "created_at": "2026-07-09T14:25:00Z",
+      "model": "claude-sonnet-5",
+      "text": "Legal signed off on this version. Saving it as our standard:\n\nYou are a contract clause flagging assistant for pre-counsel triage. Input: a vendor contract. For each category — auto-renewal, liability cap, indemnification, data processing, termination notice — output a table row: category, status (present / absent / unusual), verbatim quote with section number, risk level (low / medium / high).\nRules:\n- Quote clauses verbatim with section numbers; never paraphrase.\n- A missing expected clause is a finding: mark it absent with risk level.\n- Flag only — never give negotiation or legal advice; if asked, state that counsel review is required.\n- If the document does not appear to be a contract, say so and stop."
+    }
+  ]
+}

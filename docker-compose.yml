@@ -42,10 +42,20 @@ services:
       - DATABASE_URL=postgresql://loomi:loomi@postgres:5432/loomi
       - CHROMA_HOST=chroma
       - CHROMA_PORT=8000
-      - LOOMI_REPO_PATH=/app
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - LOOMI_REPO_PATH=/repo
+      # Host home prefix so /track can translate host paths (~/x, $HOME/x) to /host/x.
+      - LOOMI_HOST_HOME=${HOME}
+      - FEATHERLESS_API_KEY=${FEATHERLESS_API_KEY}
     volumes:
       - .:/app
+      # Repo the git poller tracks. Override LOOMI_HOST_REPO in .env to point at
+      # ANY repository on the host (absolute or relative path); defaults to this repo.
+      - ${LOOMI_HOST_REPO:-.}:/repo:ro
+      # Whole host home read-only so /track can switch to any local repo at runtime.
+      - ${HOME}:/host:ro
+      # Persist the ~167MB ONNX embedding model so a container recreate doesn't
+      # re-download it (first recommend/capture would otherwise hang for tens of seconds).
+      - onnx_cache:/root/.cache/chroma
     depends_on:
       postgres:
         condition: service_healthy
@@ -90,3 +100,4 @@ services:
 volumes:
   postgres_data:
   chroma_data:
+  onnx_cache:
