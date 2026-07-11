@@ -88,3 +88,18 @@
 - Focused tests pass 5/5 and the offline suite passes 39 tests with 1 live test
   deselected. The sandboxed run could not create Chroma's home cache; rerunning
   with access to the existing model cache passed.
+
+## 2026-07-11 - Thin Python core API
+
+- Added FastAPI endpoints for health, recommendation, asset evidence,
+  explanation, prompt adoption, internal capture processing, and lifecycle SSE.
+- Kept recommendation, onboarding, capture, and storage contracts unchanged;
+  the HTTP layer only validates, delegates, and translates results.
+- `memory_ready` is emitted only for capture results that confirm both an asset
+  id and `embedded=true`; the in-memory backlog is capped at 100 for the
+  single-core hackathon runtime.
+- Strict TDD evidence: initial collection failed with missing FastAPI and
+  `core_service`; focused tests then passed 7/7 and the offline suite passed
+  46 tests with 1 live test deselected.
+- Remaining: Task 4 owns Git polling, bounded retries, persisted SHA position,
+  and richer capture lifecycle orchestration.
