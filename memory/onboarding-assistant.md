@@ -39,3 +39,14 @@
 - The first sandbox request failed on DNS resolution; the retry with approved
   network escalation succeeded. End-to-end `explain_asset()` remains blocked
   only by the missing shared DB client and seed data.
+
+## 2026-07-11 - Grounded seed-asset verification
+
+- `db/client.py`, `db/schema.sql`, and `db/seed.py` are now present. Running the
+  seed script populated SQLite relational rows but stopped while creating
+  Chroma vectors because `chromadb` is not installed.
+- Used the seeded asset `35e6eb7c-acfc-4bfd-a603-e4dd30328cbf` (Lead
+  qualification agent for inbound sales) to run `explain_asset()` end to end.
+- Evidence loaded: one asset version and its rationale. Gemini returned a
+  grounded explanation citing version 1 and the exact stored constraints about
+  valid JSON and not contacting leads directly.
