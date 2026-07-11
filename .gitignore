@@ -1,0 +1,4 @@
+db/loomi.db
+db/chroma/
+.env
+__pycache__/
