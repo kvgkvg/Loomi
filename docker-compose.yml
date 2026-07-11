@@ -38,15 +38,19 @@ services:
     container_name: loomi-core
     ports:
       - "8002:8000"
+    working_dir: /watched-repo
     environment:
+      - PYTHONPATH=/app
       - DATABASE_URL=postgresql://loomi:loomi@postgres:5432/loomi
       - CHROMA_HOST=chroma
       - CHROMA_PORT=8000
-      - LOOMI_REPO_PATH=/app
+      - LOOMI_REPO_PATH=/watched-repo
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
       - FEATHERLESS_API_KEY=${FEATHERLESS_API_KEY:-}
     volumes:
       - .:/app
+      - ${LOOMI_WATCH_REPO:-../test_loomi_repo}:/watched-repo
+      - core_model_cache:/root/.cache/chroma
     depends_on:
       postgres:
         condition: service_healthy
@@ -91,3 +95,4 @@ services:
 volumes:
   postgres_data:
   chroma_data:
+  core_model_cache:
