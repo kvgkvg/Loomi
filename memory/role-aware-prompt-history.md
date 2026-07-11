@@ -32,3 +32,22 @@
 - User reviews written spec.
 - If implementation is requested, create an implementation plan before code.
 - First slice should cover export fixtures, adapter normalization, redaction, and idempotent conversation import.
+
+## 2026-07-11 — scope reduced after design review
+
+### Decision
+
+- Removed materialized graph, Graph Reasoner, graph traversal, and PyVis from proposal.
+- Kept two features only: role-aware personalization and LLM-enhanced prompt-history rationale.
+- Retained minimal relational conversation, turn, feedback, rationale-statement, and citation tables.
+- Prompt revision timeline uses relational history. No generic node/edge storage.
+- Git remains optional evidence only when explicitly linked.
+
+### Reason
+
+- Full graph duplicated relational truth and added sync, typing, extraction, and test cost before multi-hop value was proven.
+- Hackathon MVP needs explainable prompt rationale and role-specific reuse, not graph infrastructure.
+
+### Current spec
+
+- `docs/superpowers/specs/2026-07-11-role-aware-llm-rationale-design.md`
