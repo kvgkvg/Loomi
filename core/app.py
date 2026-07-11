@@ -333,6 +333,7 @@ class IntentReviewRequest(BaseModel):
     prompt: str
     source_env: str = "unknown"
     user_name: str | None = None
+    chat_history: list[str] | None = None
 
 class IntentResolveRequest(BaseModel):
     action: str  # approve | reject
@@ -601,11 +602,22 @@ async def adopt_endpoint(req: AdoptRequest):
 async def intent_review_endpoint(req: IntentReviewRequest):
     try:
         review = await anyio.to_thread.run_sync(
-            create_intent_review, req.prompt, req.source_env, req.user_name
+            create_intent_review, req.prompt, req.source_env, req.user_name, req.chat_history
         )
     except ValueError as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
     await event_broadcaster.broadcast("intent_review", review)
+    await event_broadcaster.broadcast(
+        "intent_review_required",
+        {
+            "id": review["id"],
+            "intent": review.get("intent"),
+            "status": review["status"],
+            "source_env": review["source_env"],
+            "user_name": review.get("user_name"),
+            "chat_history_count": len(review.get("chat_history") or []),
+        },
+    )
     return review
 
 @app.get("/intent-reviews")

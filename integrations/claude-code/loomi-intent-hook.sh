@@ -14,11 +14,30 @@ import json, sys
 try:
     hook = json.load(sys.stdin)
     prompt = (hook.get("prompt") or "").strip()
+  history = []
+  candidates = [
+    hook.get("history"),
+    hook.get("messages"),
+    hook.get("input_messages"),
+    hook.get("input-messages"),
+    (hook.get("conversation") or {}).get("messages") if isinstance(hook.get("conversation"), dict) else None,
+  ]
+  for candidate in candidates:
+    if not isinstance(candidate, list):
+      continue
+    for item in candidate:
+      if isinstance(item, str) and item.strip():
+        history.append(item.strip())
+      elif isinstance(item, dict):
+        text = item.get("content") or item.get("text") or ""
+        if isinstance(text, str) and text.strip():
+          history.append(text.strip())
     if prompt:
         print(json.dumps({
             "prompt": prompt[:4000],
             "source_env": "claude-code",
             "user_name": sys.argv[1],
+      "chat_history": [m[:1000] for m in history[-20:]],
         }))
 except Exception:
     pass

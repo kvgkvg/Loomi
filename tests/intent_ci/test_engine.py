@@ -109,3 +109,22 @@ def test_list_orders_newest_first(intent_runtime):
         first["id"], second["id"]
     }
     assert all(isinstance(r["checks"], list) for r in listed)
+
+
+def test_chat_history_is_sanitized_and_stored(intent_runtime):
+    review = create_intent_review(
+        "Plan migration",
+        "codex",
+        chat_history=[
+            "user: please migrate old billing flow",
+            "assistant: use api_key=super-secret-value for test",
+            "   ",
+        ],
+    )
+    assert isinstance(review["chat_history"], list)
+    assert len(review["chat_history"]) == 2
+    assert all("super-secret-value" not in msg for msg in review["chat_history"])
+
+    stored = next(item for item in list_intent_reviews() if item["id"] == review["id"])
+    assert len(stored["chat_history"]) == 2
+    assert all("super-secret-value" not in msg for msg in stored["chat_history"])

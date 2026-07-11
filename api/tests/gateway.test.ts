@@ -118,4 +118,31 @@ describe('Express API Gateway', () => {
       expect(res.status).toBe(400);
     });
   });
+
+  describe('POST /api/intent-review', () => {
+    it('should forward prompt review payload with chat history', async () => {
+      const mockReview = { id: 'r1', status: 'pending', checks: [], intent: 'Do task' };
+      mockedAxios.post.mockResolvedValueOnce({ data: mockReview });
+
+      const res = await request(app)
+        .post('/api/intent-review')
+        .send({
+          prompt: 'Refactor onboarding flow',
+          source_env: 'codex',
+          chat_history: ['first message', 'second message']
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual(mockReview);
+      expect(mockedAxios.post).toHaveBeenCalledWith(
+        expect.stringContaining('/intent-review'),
+        {
+          prompt: 'Refactor onboarding flow',
+          source_env: 'codex',
+          chat_history: ['first message', 'second message']
+        },
+        { timeout: 120000 }
+      );
+    });
+  });
 });

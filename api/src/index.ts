@@ -165,7 +165,8 @@ app.post('/api/capture', async (req: Request, res: Response) => {
 const IntentReviewSchema = z.object({
   prompt: z.string().min(1, "Prompt cannot be empty"),
   source_env: z.string().optional().default("unknown"),
-  user_name: z.string().nullable().optional()
+  user_name: z.string().nullable().optional(),
+  chat_history: z.array(z.string().min(1)).max(20).optional()
 });
 
 const IntentResolveSchema = z.object({

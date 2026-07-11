@@ -26,7 +26,8 @@ def main() -> int:
         if event.get("type") != "agent-turn-complete":
             return 0
         messages = event.get("input-messages") or event.get("input_messages") or []
-        prompt = "\n".join(m for m in messages if isinstance(m, str)).strip()
+        history = [m.strip() for m in messages if isinstance(m, str) and m.strip()]
+        prompt = history[-1] if history else ""
         if not prompt:
             return 0
         body = json.dumps(
@@ -34,6 +35,7 @@ def main() -> int:
                 "prompt": prompt[:4000],
                 "source_env": "codex",
                 "user_name": os.environ.get("LOOMI_USER") or os.environ.get("USER"),
+                "chat_history": [m[:1000] for m in history[-20:]],
             }
         ).encode()
         base = os.environ.get("LOOMI_API_URL", "http://localhost:3001")

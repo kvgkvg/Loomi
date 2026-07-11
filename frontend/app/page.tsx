@@ -61,6 +61,7 @@ interface IntentReview {
   source_env: string;
   user_name: string | null;
   intent: string | null;
+  chat_history?: string[];
   checks: IntentCheck[];
   status: 'passed' | 'pending' | 'approved' | 'rejected';
   reviewer?: string | null;
@@ -110,6 +111,7 @@ export default function Home() {
   const [repoInfo, setRepoInfo] = useState<{ repo_path?: string; remote_url?: string; branch?: string; head_short?: string } | null>(null);
   const [role, setRole] = useState('Developer');
   const [intentReviews, setIntentReviews] = useState<IntentReview[]>([]);
+  const [pendingIntentFlashId, setPendingIntentFlashId] = useState<string | null>(null);
   const [trackInput, setTrackInput] = useState('');
   const [isTracking, setIsTracking] = useState(false);
   const [trackError, setTrackError] = useState<string | null>(null);
@@ -194,8 +196,25 @@ export default function Home() {
       try {
         const data = JSON.parse(event.data);
         setIntentReviews(prev => prev.map(r => r.id === data.id ? { ...r, status: data.status, reviewer: data.reviewer } : r));
+        setPendingIntentFlashId(prev => (prev === data.id ? null : prev));
       } catch (err) {
         console.error("Error parsing intent_review_resolved event:", err);
+      }
+    });
+
+    eventSource.addEventListener('intent_review_required', (event: MessageEvent) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (!data?.id) return;
+        setPendingIntentFlashId(data.id);
+
+        gsap.fromTo(
+          ".intent-review-panel",
+          { boxShadow: '0 0 0px rgba(61, 107, 79, 0)' },
+          { boxShadow: '0 0 0 6px rgba(61, 107, 79, 0.25)', repeat: 3, yoyo: true, duration: 0.35 }
+        );
+      } catch (err) {
+        console.error("Error parsing intent_review_required event:", err);
       }
     });
 
@@ -508,7 +527,7 @@ export default function Home() {
         }}>
           
           {/* Git Memory Notification Toast / Feed */}
-          <div style={{
+          <div className="intent-review-panel" style={{
             padding: '20px',
             border: '1px solid var(--border-color)',
             borderRadius: 'var(--panel-radius)',
@@ -689,7 +708,8 @@ export default function Home() {
                   <div key={review.id} style={{
                     padding: '12px 14px',
                     borderRadius: 'var(--input-radius)',
-                    border: '1px solid var(--border-color)'
+                    border: pendingIntentFlashId === review.id ? '1px solid var(--accent-color)' : '1px solid var(--border-color)',
+                    animation: pendingIntentFlashId === review.id ? 'intentFlash 1s ease-in-out 4' : 'none'
                   }}>
                     <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '6px', flexWrap: 'wrap' }}>
                       <span className="mono-text" style={{
@@ -712,6 +732,28 @@ export default function Home() {
                       <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px' }}>
                         Intent: {review.intent}
                       </p>
+                    )}
+                    {review.chat_history && review.chat_history.length > 0 && (
+                      <details style={{ marginBottom: '6px' }}>
+                        <summary className="mono-text" style={{ fontSize: '11px', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+                          Chat history ({review.chat_history.length})
+                        </summary>
+                        <div style={{
+                          marginTop: '6px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '4px',
+                          maxHeight: '110px',
+                          overflowY: 'auto',
+                          padding: '6px',
+                          borderRadius: '8px',
+                          border: '1px solid var(--border-color)'
+                        }}>
+                          {review.chat_history.slice(-5).map((item, idx) => (
+                            <p key={idx} style={{ fontSize: '11px', color: 'var(--text-secondary)', margin: 0 }}>{item}</p>
+                          ))}
+                        </div>
+                      </details>
                     )}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', marginBottom: review.status === 'pending' ? '8px' : 0 }}>
                       {review.checks.map((check) => (

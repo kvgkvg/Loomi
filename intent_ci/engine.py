@@ -27,6 +27,8 @@ from recommend.engine import recommend
 
 REUSE_THRESHOLD = 0.45  # same bar the composer suggestion uses
 CLARITY_THRESHOLD = 0.6
+MAX_HISTORY_ITEMS = 20
+MAX_HISTORY_ITEM_CHARS = 1000
 
 _INTENT_SYSTEM = """Classify the intent of one user prompt sent to an AI assistant.
 Return exactly one JSON object: {"intent": <one imperative sentence stating what the user wants>,
@@ -100,6 +102,47 @@ def _check_intent_clarity(prompt: str, *, client_factory: Callable[..., Any] | N
     return {"name": "intent_clarity", "status": status, "detail": detail}, extracted["intent"]
 
 
+def _normalize_chat_history(chat_history: list[str] | None) -> list[str]:
+    if not chat_history:
+        return []
+    cleaned: list[str] = []
+    for item in chat_history:
+        if not isinstance(item, str):
+            continue
+        text = item.strip()
+        if not text:
+            continue
+        cleaned.append(redact_secrets(text[:MAX_HISTORY_ITEM_CHARS]))
+    return cleaned[-MAX_HISTORY_ITEMS:]
+
+
+def _ensure_chat_history_column(connection) -> None:
+    # Lightweight runtime migration so old DBs can store chat history.
+    try:
+        cols = connection.execute("PRAGMA table_info(intent_reviews)").fetchall()
+        if cols and not any(row["name"] == "chat_history" for row in cols):
+            connection.execute("ALTER TABLE intent_reviews ADD COLUMN chat_history TEXT")
+            connection.commit()
+        return
+    except Exception:
+        pass
+
+    try:
+        row = connection.execute(
+            """
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_name = 'intent_reviews' AND column_name = 'chat_history'
+            """
+        ).fetchone()
+        if row is None:
+            connection.execute("ALTER TABLE intent_reviews ADD COLUMN chat_history JSONB")
+            connection.commit()
+    except Exception:
+        # Keep the pipeline resilient; callers can still continue without history.
+        pass
+
+
 def run_checks(prompt: str, *, client_factory: Callable[..., Any] | None = None) -> tuple[list[dict], str, str | None]:
     """Run all checks. Returns (checks, overall_status, intent)."""
     checks = [_check_policy_secrets(prompt), _check_reuse_available(prompt)]
@@ -113,6 +156,7 @@ def create_intent_review(
     prompt: str,
     source_env: str,
     user_name: str | None = None,
+    chat_history: list[str] | None = None,
     *,
     client_factory: Callable[..., Any] | None = None,
 ) -> dict:
@@ -122,6 +166,7 @@ def create_intent_review(
         raise ValueError("source_env must be a non-empty string")
 
     checks, status, intent = run_checks(prompt.strip(), client_factory=client_factory)
+    sanitized_history = _normalize_chat_history(chat_history)
     # Default flow: the user always picks approve/reject; green checks only
     # auto-pass when explicitly opted in.
     if status == "passed" and os.getenv("INTENT_CI_AUTO_PASS") != "1":
@@ -129,10 +174,11 @@ def create_intent_review(
     review_id = str(uuid.uuid4())
     connection = get_pg_connection()
     try:
+        _ensure_chat_history_column(connection)
         connection.execute(
             """
-            INSERT INTO intent_reviews (id, prompt, source_env, user_name, intent, checks, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO intent_reviews (id, prompt, source_env, user_name, intent, checks, status, chat_history)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 review_id,
@@ -142,6 +188,7 @@ def create_intent_review(
                 intent,
                 json.dumps(checks, ensure_ascii=False),
                 status,
+                json.dumps(sanitized_history, ensure_ascii=False),
             ),
         )
         connection.commit()
@@ -153,6 +200,7 @@ def create_intent_review(
         "source_env": source_env.strip(),
         "user_name": user_name,
         "intent": intent,
+        "chat_history": sanitized_history,
         "checks": checks,
         "status": status,
     }
@@ -165,12 +213,22 @@ def _row_to_review(row) -> dict:
             checks = json.loads(checks)
         except json.JSONDecodeError:
             checks = []
+    chat_history = row["chat_history"] if "chat_history" in row.keys() else None
+    if isinstance(chat_history, str):
+        try:
+            chat_history = json.loads(chat_history)
+        except json.JSONDecodeError:
+            chat_history = []
+    if not isinstance(chat_history, list):
+        chat_history = []
+
     return {
         "id": row["id"],
         "prompt": row["prompt"],
         "source_env": row["source_env"],
         "user_name": row["user_name"],
         "intent": row["intent"],
+        "chat_history": [item for item in chat_history if isinstance(item, str)],
         "checks": checks or [],
         "status": row["status"],
         "reviewer": row["reviewer"],
@@ -181,9 +239,10 @@ def _row_to_review(row) -> dict:
 def list_intent_reviews(limit: int = 20) -> list[dict]:
     connection = get_pg_connection()
     try:
+        _ensure_chat_history_column(connection)
         rows = connection.execute(
             """
-            SELECT id, prompt, source_env, user_name, intent, checks, status, reviewer, created_at
+            SELECT id, prompt, source_env, user_name, intent, chat_history, checks, status, reviewer, created_at
             FROM intent_reviews ORDER BY created_at DESC LIMIT ?
             """,
             (limit,),

@@ -170,6 +170,7 @@ CREATE TABLE IF NOT EXISTS intent_reviews (
   source_env TEXT NOT NULL,
   user_name TEXT,
   intent TEXT,
+  chat_history TEXT,                 -- JSON array of recent chat messages
   checks TEXT NOT NULL,               -- JSON array of {name, status, detail}
   status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('passed', 'pending', 'approved', 'rejected')),
   reviewer TEXT,
