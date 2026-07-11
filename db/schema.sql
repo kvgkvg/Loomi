@@ -157,3 +157,9 @@ CREATE TABLE IF NOT EXISTS rationale_statement_commits (
   raw_event_id TEXT NOT NULL REFERENCES raw_events(id) ON DELETE CASCADE,
   PRIMARY KEY (statement_id, raw_event_id)
 );
+
+CREATE TABLE IF NOT EXISTS git_poll_state (
+  repo_path TEXT PRIMARY KEY,
+  last_polled_sha TEXT NOT NULL,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);

@@ -1,0 +1,23 @@
+schema: spec-driven
+
+context: |
+  Product: Loomi Organizational AI Memory, Track P5 hackathon MVP.
+  Existing core: Python adapters, capture pipeline, recommendation engine,
+  onboarding assistant, SQLite-compatible db/client.py, and Chroma.
+  Target web stack: Next.js, Express, PostgreSQL, Node.js, plus the existing
+  Python core exposed as an internal HTTP service.
+  Runtime: Docker Compose with one image per service in one stack.
+  Fixed embedding model: sentence-transformers/all-MiniLM-L6-v2.
+  Public Python function signatures must not change.
+  LLM failures must not kill capture; raw events remain retryable.
+  MVP excludes full RBAC, graph databases, and multi-environment assets.
+
+rules:
+  proposal:
+    - State explicit non-goals.
+  specs:
+    - Use WHO -> ACTION -> RESULT acceptance scenarios.
+    - Keep every requirement independently testable.
+  tasks:
+    - Split work into tasks touching no more than five files when practical.
+    - Include an executable verification command for every task.

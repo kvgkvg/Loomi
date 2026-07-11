@@ -24,3 +24,13 @@ __pycache__/
 
 # local visual brainstorming artifacts
 .superpowers/
+
+# venv
+.venv/
+
+# node & next.js
+node_modules/
+dist/
+.next/
+*.log
+npm_install.log

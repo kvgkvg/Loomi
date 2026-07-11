@@ -1,10 +1,14 @@
 # shared across all components (python 3.11)
 # Embeddings are Chroma-managed (Chroma's default all-MiniLM-L6-v2 ONNX) —
 # no sentence-transformers/torch needed; one embedding backend for the team.
-chromadb>=1.0,<2
+chromadb==0.5.3
 pytest>=8.0
 
 # capture pipeline (Ấn) — Featherless via OpenAI-compatible client
 openai>=1.0,<3
 python-dotenv>=1.0,<2
 streamlit>=1.30,<2
+psycopg[binary]>=3.0
+fastapi>=0.100,<1
+uvicorn>=0.20,<1
+httpx>=0.24,<1

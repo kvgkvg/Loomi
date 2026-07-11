@@ -29,3 +29,24 @@
 ### Còn dang dở / bước tiếp theo
 - Task Khang XONG. Team chạy: `conda activate loomi`, rồi `python -m db.seed` (nếu muốn reset data), import `from db.client import get_pg_connection, get_vector_collection`.
 - Nếu ai dùng env khác: chỉ cần `pip install chromadb`.
+
+## Session 2026-07-11 - Phase 2 (Storage Compatibility)
+
+### Đã làm
+- Cài đặt `psycopg[binary]` vào virtual environment `.venv` và lưu vào `requirements.txt`.
+- Tạo schema PostgreSQL `db/schema_pg.sql` sử dụng các kiểu dữ liệu native: `UUID`, `JSONB`, `BOOLEAN`, và `TIMESTAMPTZ`.
+- Thêm bảng `git_poll_state` vào cả schema SQLite (`db/schema.sql`) và schema PostgreSQL (`db/schema_pg.sql`).
+- Cập nhật `db/client.py` để hỗ trợ kết nối PostgreSQL nếu tìm thấy biến môi trường `DATABASE_URL`.
+- Cập nhật `db/client.py` để hỗ trợ kết nối Chroma từ xa nếu có biến môi trường `CHROMA_HOST`.
+- Viết bộ test kiểm thử hợp đồng (contract tests) `tests/db/test_pg_compat.py` để xác minh tính tương thích của cả 2 database backend SQLite và PostgreSQL.
+- Chạy toàn bộ test suite (`uv run pytest`), tất cả 38 test đã pass thành công.
+
+### Quyết định kỹ thuật
+- **Tương thích kiểu dữ liệu**: Postgres native trả về kiểu `uuid.UUID` và `dict`/`list` cho cột `JSONB`. Để tránh phá vỡ code xử lý cũ vốn giả định kiểu `TEXT` từ SQLite, class `CompatibleRow` sẽ tự động chuyển đổi các kiểu UUID về dạng `str`, JSONB về chuỗi JSON string, và Decimal về `float`.
+- **Tương thích Placeholder**: Viết Wrapper cho Connection và Cursor của PostgreSQL để tự động dịch các placeholder `?` của SQLite thành `%s` của PostgreSQL. Đồng thời tự động dịch các giá trị boolean dạng số (0/1) trong các câu lệnh SQL insert/update thành `FALSE/TRUE` tương thích với kiểu `BOOLEAN` nghiêm ngặt của Postgres.
+- **Remote Chroma**: Hỗ trợ remote Chroma bằng cách kiểm tra `CHROMA_HOST` và kết nối qua `chromadb.HttpClient`.
+
+### Verify đã chạy (bằng chứng)
+- Chạy `uv run pytest` kết quả: `38 passed, 1 skipped in 2.26s`.
+- Cả hai test case parameterized cho `sqlite` và `postgres` trong `tests/db/test_pg_compat.py` đều pass thành công trên database PostgreSQL `loomi_test` cục bộ.
+
