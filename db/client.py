@@ -128,6 +128,38 @@ def get_pg_connection():
     return conn
 
 
+def get_git_poll_state(state_id: str):
+    connection = get_pg_connection()
+    try:
+        return connection.execute(
+            "SELECT last_observed_sha, last_processed_sha FROM git_poll_state WHERE id = ?",
+            (state_id,),
+        ).fetchone()
+    finally:
+        connection.close()
+
+
+def save_git_poll_state(
+    state_id: str, last_observed_sha: str | None, last_processed_sha: str | None
+) -> None:
+    connection = get_pg_connection()
+    try:
+        connection.execute(
+            """
+            INSERT INTO git_poll_state (id, last_observed_sha, last_processed_sha)
+            VALUES (?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                last_observed_sha = excluded.last_observed_sha,
+                last_processed_sha = excluded.last_processed_sha,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (state_id, last_observed_sha, last_processed_sha),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+
 def get_vector_collection():
     """Return the shared Chroma collection (persistent, local, no server needed).
 

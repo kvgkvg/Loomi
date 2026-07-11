@@ -124,3 +124,16 @@
   details remain in internal logs for diagnosis.
 - Added regression inputs containing a private filesystem path/token and a
   credential-bearing database URL.
+
+## 2026-07-11 - Retry-safe Git polling
+
+- Added one core-owned `GitPoller` with persisted observed/processed SHAs,
+  three-second default polling, bounded exponential retry delay, and lifecycle
+  start/stop through FastAPI lifespan when `LOOMI_GIT_REPOSITORY` is configured.
+- Failed processing reuses the captured raw-event ID, emits `capture_retrying`,
+  and never emits `memory_ready` until embedding plus asset/version IDs exist.
+- A self-review race test proved that a newer HEAD must not replace an older
+  pending retry; the poller now completes the pending raw event before capture.
+- Replaced an initial `asyncio.to_thread` loop after its lifecycle test left
+  pytest alive; a daemon thread plus `threading.Event` stops deterministically.
+- Focused tests pass 11/11; full offline tests pass 56 with 1 live deselected.

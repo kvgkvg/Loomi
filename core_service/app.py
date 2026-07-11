@@ -2,7 +2,10 @@
 
 import json
 import logging
+import asyncio
+import os
 import uuid
+from contextlib import asynccontextmanager
 from typing import Annotated
 
 from fastapi import FastAPI, HTTPException, Query, status
@@ -17,9 +20,33 @@ from onboarding.assistant import explain_asset
 from recommend.engine import recommend
 
 from core_service.events import events
+from core_service.poller import GitPoller
 
 logger = logging.getLogger(__name__)
-app = FastAPI(title="Loomi core", docs_url=None, redoc_url=None)
+
+
+@asynccontextmanager
+async def lifespan(_app):
+    repository = os.environ.get("LOOMI_GIT_REPOSITORY")
+    if not repository:
+        yield
+        return
+
+    loop = asyncio.get_running_loop()
+    poller = GitPoller(
+        repository,
+        publish=lambda event: loop.call_soon_threadsafe(
+            asyncio.create_task, events.publish(event)
+        ),
+    )
+    poller.start()
+    try:
+        yield
+    finally:
+        poller.stop()
+
+
+app = FastAPI(title="Loomi core", docs_url=None, redoc_url=None, lifespan=lifespan)
 NonEmpty = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 Question = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)]
 
