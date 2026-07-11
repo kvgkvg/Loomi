@@ -1,8 +1,8 @@
 ## 1. Workspace and Runtime Foundations
 
-- [ ] 1.1 Create the Next.js frontend and Express API workspaces with TypeScript, test scripts, and shared environment examples.
-- [ ] 1.2 Add Dockerfiles and a Compose stack for frontend, API, core, PostgreSQL, and Chroma with persistent volumes and health checks.
-- [ ] 1.3 Add repository ignore rules for local Compose state and visual-companion artifacts.
+- [x] 1.1 Create the Next.js frontend and Express API workspaces with TypeScript, test scripts, and shared environment examples.
+- [x] 1.2 Add Dockerfiles and a Compose stack for frontend, API, core, PostgreSQL, and Chroma with persistent volumes and health checks.
+- [x] 1.3 Add repository ignore rules for local Compose state and visual-companion artifacts.
 
 ## 2. Storage Compatibility
 
