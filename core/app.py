@@ -309,10 +309,12 @@ app = FastAPI(title="Loomi Core Service", lifespan=lifespan)
 class RecommendRequest(BaseModel):
     task_description: str
     top_k: int = Field(default=5, ge=1)
+    role: str | None = None
 
 class ExplainRequest(BaseModel):
     asset_id: str
     question: str | None = None
+    role: str | None = None
 
 class CaptureRequest(BaseModel):
     commit_sha: str
@@ -420,13 +422,13 @@ async def track_endpoint(req: TrackRequest):
 @app.post("/recommend")
 async def recommend_endpoint(req: RecommendRequest):
     # Run the recommend call in a thread pool to avoid blocking the event loop
-    results = await anyio.to_thread.run_sync(recommend, req.task_description, req.top_k)
+    results = await anyio.to_thread.run_sync(recommend, req.task_description, req.top_k, req.role)
     return results
 
 @app.post("/explain")
 async def explain_endpoint(req: ExplainRequest):
     # Run explain_asset in a thread pool
-    result = await anyio.to_thread.run_sync(explain_asset, req.asset_id, req.question)
+    result = await anyio.to_thread.run_sync(explain_asset, req.asset_id, req.question, req.role)
     return result
 
 @app.get("/asset/{asset_id}")

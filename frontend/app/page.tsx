@@ -43,7 +43,10 @@ interface Suggestion {
   usage_count: number;
   owner_name: string;
   content?: string;
+  role_reason?: string | null;
 }
+
+const ROLE_PRESETS = ['Developer', 'Intern', 'Tech Lead', 'Manager'];
 
 interface Explanation {
   explanation: string;
@@ -82,6 +85,7 @@ export default function Home() {
   const [isAskingQuestion, setIsAskingQuestion] = useState(false);
   const [adoptWarning, setAdoptWarning] = useState<string | null>(null);
   const [repoInfo, setRepoInfo] = useState<{ repo_path?: string; remote_url?: string; branch?: string; head_short?: string } | null>(null);
+  const [role, setRole] = useState('Developer');
   const [trackInput, setTrackInput] = useState('');
   const [isTracking, setIsTracking] = useState(false);
   const [trackError, setTrackError] = useState<string | null>(null);
@@ -105,6 +109,16 @@ export default function Home() {
     const interval = setInterval(checkHealth, 10000);
     return () => clearInterval(interval);
   }, []);
+
+  // Restore/persist the viewing role (personalization lens, not access control)
+  useEffect(() => {
+    const saved = window.localStorage.getItem('loomi-role');
+    if (saved) setRole(saved);
+  }, []);
+  const handleRoleChange = (value: string) => {
+    setRole(value);
+    window.localStorage.setItem('loomi-role', value);
+  };
 
   // Fetch which repository the poller is tracking
   useEffect(() => {
@@ -172,7 +186,7 @@ export default function Home() {
         const res = await fetch(`${API_BASE}/api/recommend`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ task_description: composerInput, top_k: 1 }),
+          body: JSON.stringify({ task_description: composerInput, top_k: 1, role }),
           signal: controller.signal
         });
         const results = await res.json();
@@ -200,7 +214,7 @@ export default function Home() {
       clearTimeout(delayDebounceFn);
       if (controller) controller.abort();
     };
-  }, [composerInput]);
+  }, [composerInput, role]);
 
   // GSAP Scrubbed Text Reveal Animation for Asset Rationale
   useGSAP(() => {
@@ -247,7 +261,7 @@ export default function Home() {
       const expRes = await fetch(`${API_BASE}/api/explain`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ asset_id: assetId })
+        body: JSON.stringify({ asset_id: assetId, role })
       });
       const explanationData = await expRes.json();
       setActiveExplanation(explanationData);
@@ -299,7 +313,8 @@ export default function Home() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           asset_id: activeAsset.id,
-          question: explanationQuestion
+          question: explanationQuestion,
+          role
         })
       });
       const data = await res.json();
@@ -372,6 +387,28 @@ export default function Home() {
         
         {/* Aggregated Health Check */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          {/* Role lens switcher — personalization, not access control */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <span className="mono-text" style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Viewing as</span>
+            <select
+              value={role}
+              onChange={(e) => handleRoleChange(e.target.value)}
+              className="mono-text"
+              style={{
+                fontSize: '12px',
+                padding: '4px 8px',
+                borderRadius: '6px',
+                border: '1px solid var(--border-color)',
+                backgroundColor: 'var(--panel-bg)',
+                color: 'var(--text-primary)',
+                cursor: 'pointer'
+              }}
+            >
+              {ROLE_PRESETS.map(r => (
+                <option key={r} value={r}>{r}</option>
+              ))}
+            </select>
+          </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <span style={{
               width: '8px',
@@ -545,6 +582,11 @@ export default function Home() {
                   </div>
                   <h4 style={{ fontSize: '16px', fontWeight: 600 }}>{ghostSuggestion.title}</h4>
                   <p style={{ fontSize: '13px', color: '#444' }}>Created by: {ghostSuggestion.owner_name} • {ghostSuggestion.problem}</p>
+                  {ghostSuggestion.role_reason && (
+                    <p className="mono-text" style={{ fontSize: '11px', color: '#66706A', marginTop: '4px' }}>
+                      ◆ {role} lens: {ghostSuggestion.role_reason}
+                    </p>
+                  )}
                 </div>
                 <div style={{ display: 'flex', gap: '8px' }}>
                   <button className="btn btn-secondary" style={{ borderColor: 'var(--accent-color)', color: 'var(--accent-color)' }} onClick={() => handleReview(ghostSuggestion.asset_id)}>

@@ -16,12 +16,14 @@ app.use(express.json());
 // Zod schemas for request validation
 const RecommendSchema = z.object({
   task_description: z.string().min(1, "Task description cannot be empty"),
-  top_k: z.number().int().positive().optional().default(5)
+  top_k: z.number().int().positive().optional().default(5),
+  role: z.string().nullable().optional()
 });
 
 const ExplainSchema = z.object({
   asset_id: z.string().uuid("Invalid asset ID format"),
-  question: z.string().nullable().optional()
+  question: z.string().nullable().optional(),
+  role: z.string().nullable().optional()
 });
 
 const AdoptSchema = z.object({

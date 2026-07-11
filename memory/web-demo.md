@@ -131,3 +131,27 @@
   composer suggestion path.
 - Statement extraction is still LLM-nondeterministic; if a fixture fails validation,
   rerun the script (idempotent).
+
+## 2026-07-12 - Role-aware view wired into web UI
+
+### Completed
+- Threaded optional `role` through the web stack: core `RecommendRequest`/
+  `ExplainRequest` models, gateway Zod schemas, and passed positionally to the
+  existing `recommend(task, top_k, role)` / `explain_asset(id, question, role)`
+  contracts (unchanged).
+- Frontend: "Viewing as" role switcher in the nav (Developer/Intern/Tech Lead/
+  Manager presets, persisted in localStorage), role sent with every recommend and
+  explain call, ghost suggestion shows the `role_reason` line ("◆ Manager lens:
+  Matches role goal: risk"), and role change re-triggers the debounced suggestion.
+- Verified: Manager role boosts the contract asset 0.5613 → 0.5964 with role_reason;
+  Intern explanation comes back step-by-step with primary_actions; UI end-to-end.
+- Tests: backend 79 passed / 2 skipped (SQLite mode); gateway Jest 8/8 (run inside
+  the api container via `docker compose exec -T api npx jest` — jest is not
+  installed on the host).
+
+### Problems and fixes
+- Featherless plan allows 4 concurrency units and GLM-5.2 costs 4 units/request →
+  only ONE LLM call can be in flight org-wide. Parallel explain calls (or a demo
+  with two people clicking Review simultaneously) 429 as "unable to generate
+  explanation". Also saw provider-side 504s that hold the quota for a while.
+  Retry when idle — not a code bug.
