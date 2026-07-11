@@ -11,6 +11,23 @@ from capture_pipeline.llm import extract_rationale
 from db.client import get_pg_connection, get_vector_collection
 
 
+def _resolve_user(connection, name: str | None, email: str | None) -> str | None:
+    """Map a git author to a users row (create on first sight). Returns user id."""
+    if not email:
+        return None
+    row = connection.execute(
+        "SELECT id FROM users WHERE email = ?", (email,)
+    ).fetchone()
+    if row is not None:
+        return row["id"]
+    user_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"loomi-user:{email}"))
+    connection.execute(
+        "INSERT INTO users (id, name, email) VALUES (?, ?, ?)",
+        (user_id, name or email, email),
+    )
+    return user_id
+
+
 def _failure(message: str) -> dict:
     return {
         "asset_id": None,
@@ -93,6 +110,11 @@ def process_raw_event(raw_event_id: str) -> dict:
         raw_signal = json.loads(event["raw_signal"] or "{}")
         asset_key = _asset_identity(raw_signal)
         paths = raw_signal["paths"]
+        editor_id = _resolve_user(
+            connection,
+            raw_signal.get("author_name"),
+            raw_signal.get("author_email"),
+        )
         asset = connection.execute(
             "SELECT id FROM assets WHERE asset_key = ?", (asset_key,)
         ).fetchone()
@@ -100,8 +122,8 @@ def process_raw_event(raw_event_id: str) -> dict:
             asset_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"loomi-asset:{asset_key}"))
             connection.execute(
                 """
-                INSERT INTO assets (id, asset_key, type, title, source_tool)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO assets (id, asset_key, type, title, source_tool, owner_id)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 (
                     asset_id,
@@ -109,6 +131,7 @@ def process_raw_event(raw_event_id: str) -> dict:
                     _infer_asset_type(paths),
                     event["title"] or "Untitled Git knowledge",
                     event["source_tool"],
+                    editor_id,
                 ),
             )
         else:
@@ -124,8 +147,8 @@ def process_raw_event(raw_event_id: str) -> dict:
         connection.execute(
             """
             INSERT INTO asset_versions
-                (id, asset_id, raw_event_id, version_number, content, diff_summary)
-            VALUES (?, ?, ?, ?, ?, ?)
+                (id, asset_id, raw_event_id, version_number, content, diff_summary, editor_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 version_id,
@@ -134,6 +157,7 @@ def process_raw_event(raw_event_id: str) -> dict:
                 version_number,
                 event["content"],
                 raw_signal.get("diff", ""),
+                editor_id,
             ),
         )
 

@@ -69,6 +69,8 @@ def capture_commit(commit_sha: str) -> dict:
         raise ValueError("No supported knowledge files found in commit")
 
     title = _git("show", "-s", "--format=%s", resolved_sha, cwd=repository)
+    author_name = _git("show", "-s", "--format=%an", resolved_sha, cwd=repository)
+    author_email = _git("show", "-s", "--format=%ae", resolved_sha, cwd=repository)
     sections = []
     for path in paths:
         content = _git("show", f"{resolved_sha}:{path}", cwd=repository)
@@ -90,6 +92,8 @@ def capture_commit(commit_sha: str) -> dict:
             "commit_sha": resolved_sha,
             "paths": paths,
             "diff": diff,
+            "author_name": author_name,
+            "author_email": author_email,
         },
         ensure_ascii=False,
     )

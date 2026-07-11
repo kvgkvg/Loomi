@@ -5,7 +5,7 @@ import subprocess
 from adapters.git_adapter import capture_commit
 from capture_pipeline.process import process_raw_event
 import capture_pipeline.process as process_module
-from db.client import get_vector_collection
+from db.client import get_pg_connection, get_vector_collection
 
 
 def _git(path, *args):
@@ -45,3 +45,11 @@ def test_commit_to_vector_flow(tmp_path, isolated_runtime, monkeypatch):
     assert get_vector_collection().get(ids=[result["asset_id"]])["ids"] == [
         result["asset_id"]
     ]
+    # Git author is mapped to a users row and set as the asset owner.
+    owner = get_pg_connection().execute(
+        "SELECT u.name AS name, u.email AS email FROM assets a "
+        "JOIN users u ON u.id = a.owner_id WHERE a.id = ?",
+        (result["asset_id"],),
+    ).fetchone()
+    assert owner["name"] == "An"
+    assert owner["email"] == "an@example.com"
