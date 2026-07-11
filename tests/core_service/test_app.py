@@ -1,7 +1,9 @@
 import json
+import asyncio
 import sqlite3
+import threading
 
-from fastapi.testclient import TestClient
+import httpx
 
 import core_service.app as app_module
 from core_service.events import events
@@ -48,24 +50,31 @@ def _client(monkeypatch):
             pass
 
     monkeypatch.setattr(app_module, "get_pg_connection", Connection)
-    return TestClient(app_module.app), connection
+    return connection
+
+
+async def _request(method, path, **kwargs):
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app_module.app), base_url="http://test"
+    ) as client:
+        return await client.request(method, path, **kwargs)
 
 
 def test_health_and_recommend_delegate(monkeypatch):
     monkeypatch.setattr(app_module, "recommend", lambda task, top_k=5: [{"asset_id": "a1", "score": 0.9}])
-    client, _ = _client(monkeypatch)
+    _client(monkeypatch)
 
-    assert client.get("/health").json() == {"status": "ok"}
-    assert client.post("/recommend", json={"task_description": "qualify inbound leads", "top_k": 1}).json() == {
+    assert asyncio.run(_request("GET", "/health")).json() == {"status": "ok"}
+    assert asyncio.run(_request("POST", "/recommend", json={"task_description": "qualify inbound leads", "top_k": 1})).json() == {
         "results": [{"asset_id": "a1", "score": 0.9}]
     }
-    assert client.post("/recommend", json={"task_description": " "}).status_code == 422
+    assert asyncio.run(_request("POST", "/recommend", json={"task_description": " "})).status_code == 422
 
 
 def test_asset_detail_returns_grounded_evidence(monkeypatch):
-    client, _ = _client(monkeypatch)
+    _client(monkeypatch)
 
-    response = client.get("/assets/a1")
+    response = asyncio.run(_request("GET", "/assets/a1"))
 
     assert response.status_code == 200
     body = response.json()
@@ -85,20 +94,21 @@ def test_explain_delegates(monkeypatch):
             "cited_constraints": [],
         },
     )
-    client, _ = _client(monkeypatch)
+    _client(monkeypatch)
 
-    response = client.post("/assets/a1/explain", json={"question": "Why?"})
+    response = asyncio.run(_request("POST", "/assets/a1/explain", json={"question": "  Why?  "}))
 
     assert response.json()["explanation"] == "a1: Why?"
+    assert asyncio.run(_request("POST", "/assets/a1/explain", json={"question": " "})).status_code == 422
 
 
 def test_use_records_adoption(monkeypatch):
-    client, connection = _client(monkeypatch)
+    connection = _client(monkeypatch)
 
-    response = client.post(
-        "/assets/a1/use",
-        json={"user_id": "u1", "task_description": "qualify inbound leads"},
-    )
+    response = asyncio.run(_request(
+        "POST", "/assets/a1/use",
+        json={"user_id": "u1", "task_description": "qualify inbound leads"}
+    ))
 
     assert response.status_code == 201
     assert response.json()["content"] == "Classify leads"
@@ -106,28 +116,168 @@ def test_use_records_adoption(monkeypatch):
     assert connection.execute("SELECT usage_count FROM assets WHERE id = 'a1'").fetchone()[0] == 3
 
 
-def test_ready_event_is_published_only_after_successful_capture(monkeypatch):
-    while events.pop() is not None:
-        pass
-    monkeypatch.setattr(app_module, "process_raw_event", lambda _: {"embedded": True, "asset_id": "a1"})
-    client, _ = _client(monkeypatch)
+def test_capture_routes_sha_to_raw_event_and_emits_grounded_lifecycle(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        app_module,
+        "capture_commit",
+        lambda sha: calls.append(("capture", sha)) or {
+            "raw_event_id": "raw-1",
+            "title": "Lead prompt",
+            "source_tool": "git",
+        },
+    )
+    monkeypatch.setattr(
+        app_module,
+        "process_raw_event",
+        lambda raw_id: calls.append(("process", raw_id)) or {
+            "embedded": True,
+            "asset_id": "a1",
+            "version_id": "v1",
+        },
+    )
 
-    response = client.post("/internal/capture", json={"commit_sha": "abc"})
+    async def exercise():
+        events.clear()
+        stream = events.subscribe()
+        started = asyncio.create_task(anext(stream))
+        await asyncio.sleep(0)
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app_module.app), base_url="http://test"
+        ) as client:
+            response = await client.post("/internal/capture", json={"commit_sha": "abc"})
+        assert response.status_code == 202
+        assert await started == {"type": "capture_started", "commit_sha": "abc"}
+        assert await anext(stream) == {
+            "type": "memory_ready",
+            "asset_id": "a1",
+            "title": "Lead prompt",
+            "source": "git",
+            "version": "v1",
+        }
+        await stream.aclose()
 
-    assert response.status_code == 202
-    assert events.pop() == {"type": "memory_ready", "asset_id": "a1"}
-
-    monkeypatch.setattr(app_module, "process_raw_event", lambda _: {"embedded": False, "asset_id": "a2"})
-    client.post("/internal/capture", json={"commit_sha": "def"})
-    assert events.pop() is None
+    asyncio.run(exercise())
+    assert calls == [("capture", "abc"), ("process", "raw-1")]
 
 
-def test_internal_event_stream(monkeypatch):
-    client, _ = _client(monkeypatch)
-    while events.pop() is not None:
-        pass
-    events.publish({"type": "capture_retrying", "commit_sha": "abc"})
+def test_capture_started_reaches_subscriber_before_git_work(monkeypatch):
+    release_capture = threading.Event()
 
-    with client.stream("GET", "/internal/events?once=true") as response:
-        assert response.status_code == 200
-        assert next(response.iter_lines()) == 'data: {"type": "capture_retrying", "commit_sha": "abc"}'
+    def blocked_capture(sha):
+        assert release_capture.wait(timeout=1)
+        return {"raw_event_id": "raw-1", "title": "Lead prompt", "source_tool": "git"}
+
+    monkeypatch.setattr(app_module, "capture_commit", blocked_capture)
+    monkeypatch.setattr(
+        app_module,
+        "process_raw_event",
+        lambda _: {"embedded": True, "asset_id": "a1", "version_id": "v1"},
+    )
+
+    async def exercise():
+        events.clear()
+        stream = events.subscribe()
+        request = asyncio.create_task(_request("POST", "/internal/capture", json={"commit_sha": "abc"}))
+        assert await asyncio.wait_for(anext(stream), timeout=1) == {
+            "type": "capture_started",
+            "commit_sha": "abc",
+        }
+        release_capture.set()
+        assert (await request).status_code == 202
+        await stream.aclose()
+
+    asyncio.run(exercise())
+
+
+def test_capture_failure_emits_retrying_without_ready(monkeypatch):
+    monkeypatch.setattr(
+        app_module,
+        "capture_commit",
+        lambda _: {"raw_event_id": "raw-1", "title": "Lead prompt", "source_tool": "git"},
+    )
+    monkeypatch.setattr(
+        app_module,
+        "process_raw_event",
+        lambda _: {"embedded": False, "asset_id": "a1", "error": "vector failed"},
+    )
+
+    async def exercise():
+        events.clear()
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app_module.app), base_url="http://test"
+        ) as client:
+            response = await client.post("/internal/capture", json={"commit_sha": "abc"})
+        assert response.status_code == 202
+        stream = events.subscribe()
+        assert await anext(stream) == {"type": "capture_started", "commit_sha": "abc"}
+        assert await anext(stream) == {
+            "type": "capture_retrying",
+            "commit_sha": "abc",
+            "error": "vector failed",
+        }
+        await stream.aclose()
+
+    asyncio.run(exercise())
+
+
+def test_capture_exception_is_safe_and_retryable(monkeypatch):
+    def fail_capture(_):
+        raise ValueError("bad sha")
+
+    monkeypatch.setattr(app_module, "capture_commit", fail_capture)
+
+    async def exercise():
+        events.clear()
+        response = await _request("POST", "/internal/capture", json={"commit_sha": "abc"})
+        assert response.status_code == 202
+        assert response.json() == {"embedded": False, "error": "bad sha"}
+        stream = events.subscribe()
+        assert (await anext(stream))["type"] == "capture_started"
+        assert await anext(stream) == {
+            "type": "capture_retrying",
+            "commit_sha": "abc",
+            "error": "bad sha",
+        }
+        await stream.aclose()
+
+    asyncio.run(exercise())
+
+
+def test_process_exception_is_safe_and_retryable(monkeypatch):
+    monkeypatch.setattr(
+        app_module,
+        "capture_commit",
+        lambda _: {"raw_event_id": "raw-1", "title": "Lead prompt", "source_tool": "git"},
+    )
+
+    def fail_process(_):
+        raise RuntimeError("processor unavailable")
+
+    monkeypatch.setattr(app_module, "process_raw_event", fail_process)
+
+    async def exercise():
+        events.clear()
+        response = await _request("POST", "/internal/capture", json={"commit_sha": "abc"})
+        assert response.status_code == 202
+        assert response.json() == {"embedded": False, "error": "processor unavailable"}
+        stream = events.subscribe()
+        assert (await anext(stream))["type"] == "capture_started"
+        assert (await anext(stream))["type"] == "capture_retrying"
+        await stream.aclose()
+
+    asyncio.run(exercise())
+
+
+def test_sse_endpoint_receives_event_published_during_subscription(monkeypatch):
+    async def exercise():
+        events.clear()
+        response = app_module.lifecycle_events(once=True)
+        line = asyncio.create_task(anext(response.body_iterator))
+        await asyncio.sleep(0)
+        await events.publish({"type": "capture_started", "commit_sha": "abc"})
+        assert await asyncio.wait_for(line, timeout=1) == (
+            'data: {"type": "capture_started", "commit_sha": "abc"}\n\n'
+        )
+
+    asyncio.run(exercise())

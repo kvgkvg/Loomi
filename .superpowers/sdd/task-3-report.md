@@ -28,3 +28,37 @@
   durable replay and multi-replica delivery remain out of scope.
 - One dependency warning remains from FastAPI's TestClient compatibility layer;
   it does not affect test results.
+
+## Review-fix TDD evidence
+
+- RED command: `uv run --with-requirements requirements.txt python -m pytest
+  tests/core_service -v`
+- RED output: `5 failed, 3 passed, 1 warning in 0.33s`. Failures proved the
+  untrimmed question, missing `capture_commit` delegation, absent retry
+  lifecycle behavior, missing loop-safe event API, and missing clear test
+  boundary. The warning came from importing TestClient.
+- GREEN command: `uv run --with-requirements requirements.txt python -m pytest
+  tests/core_service -v`
+- GREEN output after the first implementation pass: `10 passed in 0.26s` with
+  no warnings. A separate process-exception regression test was then added;
+  final focused and full-suite results are recorded below.
+
+## Review fixes
+
+- `/internal/capture` now publishes `capture_started`, routes the SHA through
+  `capture_commit`, passes its exact `raw_event_id` to `process_raw_event`, and
+  publishes either grounded `memory_ready` metadata or `capture_retrying`.
+- Blocking Git/capture functions run in FastAPI's threadpool while all event
+  publication and subscription stays on the serving asyncio loop.
+- Replaced TestClient usage with HTTPX ASGI transport, removing the deprecation
+  warning instead of suppressing it.
+- Optional explanation questions are stripped, reject whitespace-only values,
+  and are capped at 2,000 characters.
+
+## Final verification
+
+- Focused: `uv run --with-requirements requirements.txt python -m pytest
+  tests/core_service -v` -> `11 passed in 0.27s`, pristine output.
+- Full offline: `uv run --with-requirements requirements.txt python -m pytest
+  -m 'not live' -q` -> `50 passed, 1 deselected in 2.83s`.
+- `git diff --check` produced no output.

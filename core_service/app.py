@@ -5,10 +5,12 @@ import uuid
 from typing import Annotated
 
 from fastapi import FastAPI, HTTPException, Query, status
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, StringConstraints
 
 from capture_pipeline.process import process_raw_event
+from adapters.git_adapter import capture_commit
 from db.client import get_pg_connection
 from onboarding.assistant import explain_asset
 from recommend.engine import recommend
@@ -17,6 +19,7 @@ from core_service.events import events
 
 app = FastAPI(title="Loomi core", docs_url=None, redoc_url=None)
 NonEmpty = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+Question = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)]
 
 
 class RecommendRequest(BaseModel):
@@ -25,7 +28,7 @@ class RecommendRequest(BaseModel):
 
 
 class ExplainRequest(BaseModel):
-    question: str | None = None
+    question: Question | None = None
 
 
 class UseRequest(BaseModel):
@@ -152,21 +155,45 @@ def use_asset(asset_id: str, request: UseRequest):
 
 
 @app.post("/internal/capture", status_code=status.HTTP_202_ACCEPTED)
-def capture(request: CaptureRequest):
-    result = process_raw_event(request.commit_sha)
-    if result.get("embedded") and result.get("asset_id"):
-        events.publish({"type": "memory_ready", "asset_id": result["asset_id"]})
+async def capture(request: CaptureRequest):
+    await events.publish({"type": "capture_started", "commit_sha": request.commit_sha})
+    try:
+        captured = await run_in_threadpool(capture_commit, request.commit_sha)
+        result = await run_in_threadpool(process_raw_event, captured["raw_event_id"])
+    except Exception as error:
+        result = {"embedded": False, "error": str(error) or "capture failed"}
+
+    ready = (
+        result.get("embedded")
+        and result.get("asset_id")
+        and result.get("version_id")
+        and captured.get("title")
+        and captured.get("source_tool")
+    )
+    if ready:
+        await events.publish(
+            {
+                "type": "memory_ready",
+                "asset_id": result["asset_id"],
+                "title": captured["title"],
+                "source": captured["source_tool"],
+                "version": result["version_id"],
+            }
+        )
+    else:
+        await events.publish(
+            {
+                "type": "capture_retrying",
+                "commit_sha": request.commit_sha,
+                "error": result.get("error") or "capture processing incomplete",
+            }
+        )
     return result
 
 
 @app.get("/internal/events")
 def lifecycle_events(once: bool = Query(default=False)):
     async def stream():
-        queued = events.pop()
-        if queued is not None:
-            yield f"data: {json.dumps(queued)}\n\n"
-            if once:
-                return
         async for event in events.subscribe():
             yield f"data: {json.dumps(event)}\n\n"
             if once:

@@ -103,3 +103,15 @@
   46 tests with 1 live test deselected.
 - Remaining: Task 4 owns Git polling, bounded retries, persisted SHA position,
   and richer capture lifecycle orchestration.
+
+## 2026-07-11 - Core API review fixes
+
+- Corrected internal capture orchestration to call `capture_commit(commit_sha)`
+  before `process_raw_event(raw_event_id)` and proved exact argument flow.
+- Lifecycle order is now `capture_started` before Git work, followed by
+  `memory_ready` with asset/title/source/version only after embedded success,
+  or `capture_retrying` for incomplete results and safe exceptions.
+- Event publishing is async and loop-local; blocking domain calls use FastAPI's
+  threadpool. Added a concurrent endpoint-to-SSE subscriber regression test.
+- Replaced deprecated TestClient tests with HTTPX ASGI transport and bounded,
+  trimmed optional explanation questions.

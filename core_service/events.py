@@ -10,18 +10,21 @@ class EventBus:
         self._events = deque(maxlen=100)
         self._subscribers = set()
 
-    def publish(self, event: dict) -> None:
+    async def publish(self, event: dict) -> None:
         self._events.append(event)
         for subscriber in tuple(self._subscribers):
             subscriber.put_nowait(event)
 
-    def pop(self):
-        return self._events.popleft() if self._events else None
+    def clear(self) -> None:
+        self._events.clear()
 
     async def subscribe(self):
         queue = asyncio.Queue()
+        backlog = tuple(self._events)
         self._subscribers.add(queue)
         try:
+            for event in backlog:
+                yield event
             while True:
                 yield await queue.get()
         finally:
