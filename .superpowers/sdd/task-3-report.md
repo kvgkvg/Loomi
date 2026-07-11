@@ -62,3 +62,15 @@
 - Full offline: `uv run --with-requirements requirements.txt python -m pytest
   -m 'not live' -q` -> `50 passed, 1 deselected in 2.83s`.
 - `git diff --check` produced no output.
+
+## Sensitive-error review fix
+
+- RED: `uv run --with-requirements requirements.txt python -m pytest
+  tests/core_service -v` -> `4 failed, 7 passed in 0.41s`. The failures showed
+  capture/process exception details and domain failure text reaching the HTTP
+  result or `capture_retrying` event.
+- GREEN: the same focused command -> `11 passed in 0.27s`, pristine output.
+- External capture failures now always expose `error: capture failed`; exception
+  details remain available through internal exception/warning logs only.
+- Final focused rerun: `11 passed in 0.26s`; full offline suite: `50 passed, 1
+  deselected in 2.72s`; both produced pristine output.

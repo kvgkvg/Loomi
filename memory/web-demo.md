@@ -115,3 +115,12 @@
   threadpool. Added a concurrent endpoint-to-SSE subscriber regression test.
 - Replaced deprecated TestClient tests with HTTPX ASGI transport and bounded,
   trimmed optional explanation questions.
+
+## 2026-07-11 - Capture error sanitization
+
+- Prevented capture/process exception text and domain failure details from
+  leaking through HTTP responses or `capture_retrying` lifecycle events.
+- External failures now use the stable `capture failed` message; full exception
+  details remain in internal logs for diagnosis.
+- Added regression inputs containing a private filesystem path/token and a
+  credential-bearing database URL.

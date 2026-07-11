@@ -1,6 +1,7 @@
 """FastAPI transport that delegates to Loomi's existing domain functions."""
 
 import json
+import logging
 import uuid
 from typing import Annotated
 
@@ -17,6 +18,7 @@ from recommend.engine import recommend
 
 from core_service.events import events
 
+logger = logging.getLogger(__name__)
 app = FastAPI(title="Loomi core", docs_url=None, redoc_url=None)
 NonEmpty = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 Question = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)]
@@ -160,8 +162,9 @@ async def capture(request: CaptureRequest):
     try:
         captured = await run_in_threadpool(capture_commit, request.commit_sha)
         result = await run_in_threadpool(process_raw_event, captured["raw_event_id"])
-    except Exception as error:
-        result = {"embedded": False, "error": str(error) or "capture failed"}
+    except Exception:
+        logger.exception("capture failed for commit_sha=%s", request.commit_sha)
+        result = {"embedded": False, "error": "capture failed"}
 
     ready = (
         result.get("embedded")
@@ -181,11 +184,18 @@ async def capture(request: CaptureRequest):
             }
         )
     else:
+        if result.get("error") != "capture failed":
+            logger.warning(
+                "capture processing incomplete for commit_sha=%s: %s",
+                request.commit_sha,
+                result.get("error"),
+            )
+        result = {**result, "error": "capture failed"}
         await events.publish(
             {
                 "type": "capture_retrying",
                 "commit_sha": request.commit_sha,
-                "error": result.get("error") or "capture processing incomplete",
+                "error": "capture failed",
             }
         )
     return result

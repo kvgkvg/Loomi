@@ -209,12 +209,13 @@ def test_capture_failure_emits_retrying_without_ready(monkeypatch):
         ) as client:
             response = await client.post("/internal/capture", json={"commit_sha": "abc"})
         assert response.status_code == 202
+        assert response.json()["error"] == "capture failed"
         stream = events.subscribe()
         assert await anext(stream) == {"type": "capture_started", "commit_sha": "abc"}
         assert await anext(stream) == {
             "type": "capture_retrying",
             "commit_sha": "abc",
-            "error": "vector failed",
+            "error": "capture failed",
         }
         await stream.aclose()
 
@@ -223,7 +224,7 @@ def test_capture_failure_emits_retrying_without_ready(monkeypatch):
 
 def test_capture_exception_is_safe_and_retryable(monkeypatch):
     def fail_capture(_):
-        raise ValueError("bad sha")
+        raise ValueError("bad sha at /srv/private?token=secret")
 
     monkeypatch.setattr(app_module, "capture_commit", fail_capture)
 
@@ -231,13 +232,13 @@ def test_capture_exception_is_safe_and_retryable(monkeypatch):
         events.clear()
         response = await _request("POST", "/internal/capture", json={"commit_sha": "abc"})
         assert response.status_code == 202
-        assert response.json() == {"embedded": False, "error": "bad sha"}
+        assert response.json() == {"embedded": False, "error": "capture failed"}
         stream = events.subscribe()
         assert (await anext(stream))["type"] == "capture_started"
         assert await anext(stream) == {
             "type": "capture_retrying",
             "commit_sha": "abc",
-            "error": "bad sha",
+            "error": "capture failed",
         }
         await stream.aclose()
 
@@ -252,7 +253,7 @@ def test_process_exception_is_safe_and_retryable(monkeypatch):
     )
 
     def fail_process(_):
-        raise RuntimeError("processor unavailable")
+        raise RuntimeError("postgresql://admin:secret@db/internal")
 
     monkeypatch.setattr(app_module, "process_raw_event", fail_process)
 
@@ -260,10 +261,14 @@ def test_process_exception_is_safe_and_retryable(monkeypatch):
         events.clear()
         response = await _request("POST", "/internal/capture", json={"commit_sha": "abc"})
         assert response.status_code == 202
-        assert response.json() == {"embedded": False, "error": "processor unavailable"}
+        assert response.json() == {"embedded": False, "error": "capture failed"}
         stream = events.subscribe()
         assert (await anext(stream))["type"] == "capture_started"
-        assert (await anext(stream))["type"] == "capture_retrying"
+        assert await anext(stream) == {
+            "type": "capture_retrying",
+            "commit_sha": "abc",
+            "error": "capture failed",
+        }
         await stream.aclose()
 
     asyncio.run(exercise())
