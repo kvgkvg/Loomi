@@ -4,6 +4,8 @@ import json
 import os
 import re
 
+from role_lens import resolve_role_lens
+
 
 FEATHERLESS_BASE_URL = "https://api.featherless.ai/v1"
 FEATHERLESS_MODEL = "zai-org/GLM-5.2"
@@ -85,12 +87,34 @@ def _load_evidence(connection, asset_id):
                     "constraints": _as_constraints(_value(row, "constraints", 5)),
                 }
             )
-        return {"asset": asset, "versions": versions}
+        _execute(
+            cursor,
+            """SELECT rs.statement_type, rs.statement, rs.evidence_kind,
+                      rs.confidence, rs.review_status
+                 FROM rationale_statements rs
+                 JOIN asset_versions av ON av.id = rs.version_id
+                WHERE av.asset_id = %s
+                  AND rs.review_status IN ('approved', 'edited')
+                ORDER BY rs.created_at, rs.id""",
+            (asset_id,),
+        )
+        statements = []
+        for row in cursor.fetchall():
+            statements.append(
+                {
+                    "statement_type": _value(row, "statement_type", 0),
+                    "statement": _value(row, "statement", 1),
+                    "evidence_kind": _value(row, "evidence_kind", 2),
+                    "confidence": _value(row, "confidence", 3),
+                    "review_status": _value(row, "review_status", 4),
+                }
+            )
+        return {"asset": asset, "versions": versions, "rationale_statements": statements}
     finally:
         cursor.close()
 
 
-def _prompt(evidence, question):
+def _prompt(evidence, question, lens=None):
     question_text = question.strip() if isinstance(question, str) and question.strip() else "No specific question."
     return (
         "Explain this organizational asset using only the evidence below. "
@@ -98,6 +122,7 @@ def _prompt(evidence, question):
         "Return JSON with keys explanation (string), cited_versions (integer list), "
         "and cited_constraints (string list). Do not invent citations.\n\n"
         f"Evidence:\n{json.dumps(evidence, ensure_ascii=False, default=str)}\n\n"
+        f"Role lens:\n{json.dumps(lens, ensure_ascii=False) if lens else 'No role lens.'}\n\n"
         f"Question:\n{question_text}"
     )
 
@@ -158,7 +183,7 @@ def _validated_result(model_result, evidence):
     }
 
 
-def explain_asset(asset_id: str, question: str = None) -> dict:
+def explain_asset(asset_id: str, question: str = None, role: str = None) -> dict:
     if not isinstance(asset_id, str) or not asset_id.strip():
         return _empty_result("asset_id must be a non-empty string")
     connection = None
@@ -167,7 +192,17 @@ def explain_asset(asset_id: str, question: str = None) -> dict:
         evidence = _load_evidence(connection, asset_id.strip())
         if evidence is None:
             return _empty_result("asset not found")
-        return _validated_result(_call_llm(_prompt(evidence, question)), evidence)
+        lens = resolve_role_lens(role) if isinstance(role, str) and role.strip() else None
+        result = _validated_result(_call_llm(_prompt(evidence, question, lens)), evidence)
+        if lens is not None:
+            result.update(
+                {
+                    "role": lens["role"],
+                    "primary_actions": lens["primary_actions"],
+                    "rationale_statements": evidence["rationale_statements"],
+                }
+            )
+        return result
     except Exception:
         return _empty_result("unable to generate explanation")
     finally:

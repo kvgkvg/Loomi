@@ -6,14 +6,19 @@ from onboarding import assistant
 
 
 class FakeCursor:
-    def __init__(self, asset, versions):
+    def __init__(self, asset, versions, statements=()):
         self.asset = asset
         self.versions = versions
+        self.statements = list(statements)
         self.result = None
+        self.queries = []
 
     def execute(self, query, params=()):
+        self.queries.append(query)
         if "FROM assets" in query:
             self.result = [self.asset] if self.asset is not None else []
+        elif "FROM rationale_statements" in query:
+            self.result = self.statements
         elif "FROM asset_versions" in query:
             self.result = self.versions
         else:
@@ -30,8 +35,8 @@ class FakeCursor:
 
 
 class FakeConnection:
-    def __init__(self, asset, versions):
-        self.cursor_obj = FakeCursor(asset, versions)
+    def __init__(self, asset, versions, statements=()):
+        self.cursor_obj = FakeCursor(asset, versions, statements)
 
     def cursor(self):
         return self.cursor_obj
@@ -40,8 +45,8 @@ class FakeConnection:
         pass
 
 
-def connection_for(asset=None, versions=()):
-    return FakeConnection(asset, list(versions))
+def connection_for(asset=None, versions=(), statements=()):
+    return FakeConnection(asset, list(versions), statements)
 
 
 class OnboardingAssistantTests(unittest.TestCase):
@@ -133,6 +138,23 @@ class OnboardingAssistantTests(unittest.TestCase):
         with patch.object(assistant, "get_pg_connection", return_value=connection_for(asset)), patch.object(assistant, "_call_llm", side_effect=ValueError("provider payload")):
             result = assistant.explain_asset("a1")
         self.assertEqual(result, {"explanation": "unable to generate explanation", "cited_versions": [], "cited_constraints": []})
+
+    def test_role_aware_explanation_loads_only_trusted_rationale(self):
+        asset = {"id": "a1", "title": "Lead agent", "type": "prompt"}
+        statements = [{"statement_type": "intent", "statement": "Reduce risk", "evidence_kind": "inferred", "confidence": 0.7, "review_status": "approved"}]
+        connection = connection_for(asset, statements=statements)
+        model = {"explanation": "Manager summary", "cited_versions": [], "cited_constraints": []}
+        lens = {"role": "Manager", "detail_level": "summary", "explanation_style": "outcomes", "primary_actions": ["view owner"], "goals": [], "ranking_weights": {"role": 0.1}}
+        with patch.object(assistant, "get_pg_connection", return_value=connection), patch.object(assistant, "resolve_role_lens", return_value=lens), patch.object(assistant, "_call_llm", return_value=model) as call:
+            result = assistant.explain_asset("a1", role="Manager")
+
+        self.assertEqual(result["role"], "Manager")
+        self.assertEqual(result["primary_actions"], ["view owner"])
+        self.assertEqual(result["rationale_statements"][0]["statement"], "Reduce risk")
+        self.assertIn("Manager", call.call_args.args[0])
+        statement_query = next(query for query in connection.cursor_obj.queries if "FROM rationale_statements" in query)
+        self.assertIn("approved", statement_query)
+        self.assertIn("edited", statement_query)
 
 
 if __name__ == "__main__":
