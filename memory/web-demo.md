@@ -155,3 +155,35 @@
   with two people clicking Review simultaneously) 429 as "unable to generate
   explanation". Also saw provider-side 504s that hold the quota for a while.
   Retry when idle — not a code bug.
+
+## 2026-07-12 - Intent CI: prompt reviews from chat environments
+
+### Completed
+- New `intent_ci/engine.py`: every prompt POSTed from a chat env runs three
+  CI-style checks — `policy_secrets` (regex, reuses chat adapter secret patterns;
+  prompt stored redacted), `reuse_available` (recommend() top-1 >= 0.45 →
+  action_required with the matching asset), `intent_clarity` (GLM extracts
+  {intent, confidence}; < 0.6 fails; LLM error degrades to an 'error' check,
+  never raises). All pass → 'passed'; else 'pending' → human approve/reject.
+- New table `intent_reviews` in BOTH db/schema.sql and db/schema_pg.sql
+  (checks TEXT in SQLite, JSONB in Postgres).
+- Core endpoints: POST /intent-review (broadcasts `intent_review` SSE),
+  GET /intent-reviews, POST /intent-review/{id}/resolve (broadcasts
+  `intent_review_resolved`). Gateway proxies all three with Zod validation.
+- UI: "Intent CI — Prompt Reviews" panel under the Composer — env badge, status
+  chip (PASSED/PENDING/APPROVED/REJECTED), per-check ✓/✗/●/⚠ lines, Approve/
+  Reject buttons on pending; live updates via SSE, resolver name = current role.
+- `integrations/`: Claude Code UserPromptSubmit hook (working, fire-and-forget,
+  always exit 0) + settings snippet; Codex CLI notify script (experimental);
+  Copilot documented as skipped (no prompt-hook API); generic curl for anything.
+- Verified e2e: clean prompt → passed; api_key prompt → policy fail + [REDACTED]
+  stored; "triage support tickets" → reuse action_required 0.69 vs seeded asset;
+  hook script → exit 0 instantly, review appears in UI via SSE ~15s later with
+  reuse hit on "Meeting notes summarizer" (0.65); Approve flips PENDING→APPROVED.
+- Tests: 8 new in tests/intent_ci/ (mocked LLM + recommend); full suite
+  87 passed / 2 skipped; gateway Jest 8/8.
+
+### Notes
+- agent-browser `click @ref` on buttons rendered after async state changes is
+  unreliable (stale refs) — use `agent-browser eval` with a JS querySelector
+  click for verification; the app itself is fine.

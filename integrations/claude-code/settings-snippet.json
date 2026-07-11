@@ -1,0 +1,15 @@
+{
+  "//": "Merge into ~/.claude/settings.json (or project .claude/settings.json). Adjust the script path.",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /path/to/Loomi/integrations/claude-code/loomi-intent-hook.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

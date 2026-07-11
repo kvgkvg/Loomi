@@ -163,3 +163,16 @@ CREATE TABLE IF NOT EXISTS git_poll_state (
   last_polled_sha TEXT NOT NULL,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS intent_reviews (
+  id TEXT PRIMARY KEY,
+  prompt TEXT NOT NULL,
+  source_env TEXT NOT NULL,
+  user_name TEXT,
+  intent TEXT,
+  checks TEXT NOT NULL,               -- JSON array of {name, status, detail}
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('passed', 'pending', 'approved', 'rejected')),
+  reviewer TEXT,
+  resolved_at TIMESTAMP,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);

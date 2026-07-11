@@ -48,6 +48,29 @@ interface Suggestion {
 
 const ROLE_PRESETS = ['Developer', 'Intern', 'Tech Lead', 'Manager'];
 
+interface IntentCheck {
+  name: string;
+  status: 'pass' | 'fail' | 'action_required' | 'error';
+  detail: string;
+  asset_id?: string;
+}
+
+interface IntentReview {
+  id: string;
+  prompt: string;
+  source_env: string;
+  user_name: string | null;
+  intent: string | null;
+  checks: IntentCheck[];
+  status: 'passed' | 'pending' | 'approved' | 'rejected';
+  reviewer?: string | null;
+  created_at?: string | null;
+}
+
+const CHECK_ICON: Record<IntentCheck['status'], string> = {
+  pass: '✓', fail: '✗', action_required: '●', error: '⚠'
+};
+
 interface Explanation {
   explanation: string;
   cited_versions: number[];
@@ -86,6 +109,7 @@ export default function Home() {
   const [adoptWarning, setAdoptWarning] = useState<string | null>(null);
   const [repoInfo, setRepoInfo] = useState<{ repo_path?: string; remote_url?: string; branch?: string; head_short?: string } | null>(null);
   const [role, setRole] = useState('Developer');
+  const [intentReviews, setIntentReviews] = useState<IntentReview[]>([]);
   const [trackInput, setTrackInput] = useState('');
   const [isTracking, setIsTracking] = useState(false);
   const [trackError, setTrackError] = useState<string | null>(null);
@@ -128,10 +152,52 @@ export default function Home() {
       .catch(() => setRepoInfo(null));
   }, []);
 
+  // Intent CI: initial list of prompt reviews
+  useEffect(() => {
+    fetch(`${API_BASE}/api/intent-reviews`)
+      .then(res => res.json())
+      .then(data => { if (Array.isArray(data)) setIntentReviews(data); })
+      .catch(() => {});
+  }, []);
+
+  const handleResolveIntent = async (reviewId: string, action: 'approve' | 'reject') => {
+    try {
+      const res = await fetch(`${API_BASE}/api/intent-review/${reviewId}/resolve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, reviewer: role })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setIntentReviews(prev => prev.map(r => r.id === reviewId ? { ...r, status: data.status, reviewer: data.reviewer } : r));
+      }
+    } catch (err) {
+      console.error("Error resolving intent review:", err);
+    }
+  };
+
   // Server-Sent Events (SSE) stream for Git commits
   useEffect(() => {
     console.log("Connecting to SSE stream...");
     const eventSource = new EventSource(`${API_BASE}/api/events/stream`);
+
+    eventSource.addEventListener('intent_review', (event: MessageEvent) => {
+      try {
+        const review: IntentReview = JSON.parse(event.data);
+        setIntentReviews(prev => [review, ...prev.filter(r => r.id !== review.id)].slice(0, 20));
+      } catch (err) {
+        console.error("Error parsing intent_review event:", err);
+      }
+    });
+
+    eventSource.addEventListener('intent_review_resolved', (event: MessageEvent) => {
+      try {
+        const data = JSON.parse(event.data);
+        setIntentReviews(prev => prev.map(r => r.id === data.id ? { ...r, status: data.status, reviewer: data.reviewer } : r));
+      } catch (err) {
+        console.error("Error parsing intent_review_resolved event:", err);
+      }
+    });
 
     eventSource.addEventListener('memory_ready', (event: MessageEvent) => {
       try {
@@ -596,6 +662,77 @@ export default function Home() {
                     Adopt
                   </button>
                 </div>
+              </div>
+            )}
+          </div>
+
+          {/* Intent CI: prompt reviews from chat environments */}
+          <div style={{
+            padding: '20px',
+            border: '1px solid var(--border-color)',
+            borderRadius: 'var(--panel-radius)',
+            backgroundColor: 'var(--panel-bg)'
+          }}>
+            <h3 style={{ fontSize: '14px', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', marginBottom: '4px' }}>
+              Intent CI — Prompt Reviews
+            </h3>
+            <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '12px' }}>
+              Prompts captured from chat environments (Claude Code, Codex, …) run policy, reuse and clarity checks, then wait for your approve/reject.
+            </p>
+            {intentReviews.length === 0 ? (
+              <p style={{ fontSize: '13px', color: 'var(--text-secondary)', textAlign: 'center', padding: '12px 0' }}>
+                No prompt reviews yet. Hook a chat environment to POST /api/intent-review.
+              </p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                {intentReviews.map((review) => (
+                  <div key={review.id} style={{
+                    padding: '12px 14px',
+                    borderRadius: 'var(--input-radius)',
+                    border: '1px solid var(--border-color)'
+                  }}>
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '6px', flexWrap: 'wrap' }}>
+                      <span className="mono-text" style={{
+                        fontSize: '10px', fontWeight: 600, padding: '1px 6px', borderRadius: '4px',
+                        border: '1px solid var(--border-color)', color: 'var(--text-secondary)'
+                      }}>{review.source_env}</span>
+                      <span className="mono-text" style={{
+                        fontSize: '10px', fontWeight: 600, padding: '1px 6px', borderRadius: '4px',
+                        color: review.status === 'passed' || review.status === 'approved' ? 'var(--accent-color)' : review.status === 'rejected' ? '#e5484d' : '#b98900',
+                        border: `1px solid ${review.status === 'passed' || review.status === 'approved' ? 'var(--accent-color)' : review.status === 'rejected' ? '#e5484d' : '#b98900'}`
+                      }}>{review.status.toUpperCase()}</span>
+                      {review.user_name && (
+                        <span className="mono-text" style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>{review.user_name}</span>
+                      )}
+                    </div>
+                    <p style={{ fontSize: '13px', marginBottom: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {review.prompt}
+                    </p>
+                    {review.intent && (
+                      <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px' }}>
+                        Intent: {review.intent}
+                      </p>
+                    )}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', marginBottom: review.status === 'pending' ? '8px' : 0 }}>
+                      {review.checks.map((check) => (
+                        <span key={check.name} className="mono-text" style={{
+                          fontSize: '11px',
+                          color: check.status === 'pass' ? 'var(--accent-color)' : check.status === 'fail' ? '#e5484d' : '#b98900'
+                        }}>
+                          {CHECK_ICON[check.status] || '·'} {check.name}: {check.detail}
+                        </span>
+                      ))}
+                    </div>
+                    {review.status === 'pending' && (
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <button className="btn btn-primary" style={{ padding: '4px 12px', minHeight: 'auto', fontSize: '12px' }}
+                          onClick={() => handleResolveIntent(review.id, 'approve')}>Approve</button>
+                        <button className="btn btn-secondary" style={{ padding: '4px 12px', minHeight: 'auto', fontSize: '12px' }}
+                          onClick={() => handleResolveIntent(review.id, 'reject')}>Reject</button>
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
             )}
           </div>

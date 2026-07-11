@@ -159,3 +159,16 @@ CREATE TABLE IF NOT EXISTS rationale_statement_commits (
   raw_event_id UUID NOT NULL REFERENCES raw_events(id) ON DELETE CASCADE,
   PRIMARY KEY (statement_id, raw_event_id)
 );
+
+CREATE TABLE IF NOT EXISTS intent_reviews (
+  id UUID PRIMARY KEY,
+  prompt TEXT NOT NULL,
+  source_env TEXT NOT NULL,
+  user_name TEXT,
+  intent TEXT,
+  checks JSONB NOT NULL,              -- JSON array of {name, status, detail}
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('passed', 'pending', 'approved', 'rejected')),
+  reviewer TEXT,
+  resolved_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);

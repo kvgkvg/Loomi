@@ -20,6 +20,7 @@ from recommend.engine import recommend
 from onboarding.assistant import explain_asset
 from adapters.git_adapter import capture_commit
 from capture_pipeline.process import process_raw_event
+from intent_ci.engine import create_intent_review, list_intent_reviews, resolve_intent_review
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -328,6 +329,15 @@ class TrackRequest(BaseModel):
     # A git URL (https/git@) to clone, or a path already visible inside the container.
     repo: str
 
+class IntentReviewRequest(BaseModel):
+    prompt: str
+    source_env: str = "unknown"
+    user_name: str | None = None
+
+class IntentResolveRequest(BaseModel):
+    action: str  # approve | reject
+    reviewer: str | None = None
+
 # Endpoints
 @app.get("/health")
 def health_check():
@@ -586,6 +596,32 @@ async def adopt_endpoint(req: AdoptRequest):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e)
         )
+
+@app.post("/intent-review")
+async def intent_review_endpoint(req: IntentReviewRequest):
+    try:
+        review = await anyio.to_thread.run_sync(
+            create_intent_review, req.prompt, req.source_env, req.user_name
+        )
+    except ValueError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+    await event_broadcaster.broadcast("intent_review", review)
+    return review
+
+@app.get("/intent-reviews")
+async def intent_reviews_endpoint(limit: int = 20):
+    return await anyio.to_thread.run_sync(list_intent_reviews, min(max(limit, 1), 100))
+
+@app.post("/intent-review/{review_id}/resolve")
+async def intent_resolve_endpoint(review_id: str, req: IntentResolveRequest):
+    try:
+        result = await anyio.to_thread.run_sync(
+            resolve_intent_review, review_id, req.action, req.reviewer
+        )
+    except ValueError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+    await event_broadcaster.broadcast("intent_review_resolved", result)
+    return result
 
 @app.get("/events")
 async def events_endpoint():
