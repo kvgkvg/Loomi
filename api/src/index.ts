@@ -87,6 +87,22 @@ app.post('/api/explain', async (req: Request, res: Response) => {
   }
 });
 
+app.get('/api/asset/:id', async (req: Request, res: Response) => {
+  try {
+    const assetId = z.string().uuid("Invalid asset ID format").parse(req.params.id);
+    const response = await axios.get(`${CORE_URL}/asset/${encodeURIComponent(assetId)}`);
+    res.json(response.data);
+  } catch (err: any) {
+    if (err instanceof z.ZodError) {
+      res.status(400).json({ error: 'Validation failed', details: err.errors });
+    } else {
+      const status = err.response?.status || 500;
+      const message = err.response?.data?.detail || err.message;
+      res.status(status).json({ error: message });
+    }
+  }
+});
+
 app.post('/api/adopt', async (req: Request, res: Response) => {
   try {
     const body = AdoptSchema.parse(req.body);

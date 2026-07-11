@@ -266,17 +266,19 @@ export default function Home() {
   const handleAdopt = async () => {
     if (!activeAsset) return;
 
-    // Fetch the raw asset content to insert into composer.
-    // In our seed database, we can mock or fetch it.
-    // Let's query recommendations or gitEvents, or just fetch from an endpoint.
-    // Let's fetch the explanation as prompt. Actually, we can retrieve the prompt content.
-    // Let's call /recommend to get the exact asset details including content.
-    // Let's do a quick recommendation or assume a default content.
-    // Let's assume we copy a high-quality prompt template.
-    let promptContent = `[System Prompt: ${activeAsset.title}]\n\nRole: Lead Triage Agent\n\nInstructions:\n- Analyze incoming inputs\n- Triage based on priority\n- Maintain JSON output schema.`;
-    
-    // Set composer input
-    setComposerInput(promptContent);
+    // The user's task description, before the composer is replaced by the asset content
+    const taskDescription = composerInput;
+
+    try {
+      const assetRes = await fetch(`${API_BASE}/api/asset/${activeAsset.id}`);
+      if (!assetRes.ok) throw new Error(`Asset fetch failed (${assetRes.status})`);
+      const asset = await assetRes.json();
+      setComposerInput(asset.content || '');
+    } catch (err) {
+      console.error("Error fetching asset content:", err);
+      setAdoptWarning("Could not load the asset's content from the server.");
+      return;
+    }
 
     // Record adoption in db/asset_usage
     try {
@@ -285,7 +287,7 @@ export default function Home() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           asset_id: activeAsset.id,
-          task_description: composerInput || "Adopting prompt from dashboard"
+          task_description: taskDescription || "Adopting prompt from dashboard"
         })
       });
       const data = await res.json();
@@ -331,6 +333,9 @@ export default function Home() {
         
         {/* Aggregated Health Check */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <a href="/pipeline" style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-secondary)', textDecoration: 'none' }}>
+            Pipeline
+          </a>
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <span style={{
               width: '8px',

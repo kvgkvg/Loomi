@@ -280,6 +280,72 @@ def health_check():
         "vector_store": "ok"
     }
 
+@app.get("/asset/{asset_id}")
+async def asset_endpoint(asset_id: str):
+    def fetch():
+        conn = get_pg_connection()
+        try:
+            asset = conn.execute(
+                """
+                SELECT a.id, a.title, a.type, a.source_tool, a.usage_count,
+                       a.current_version_id, u.name AS owner_name
+                FROM assets a
+                LEFT JOIN users u ON a.owner_id = u.id
+                WHERE a.id = ?
+                """,
+                (asset_id,)
+            ).fetchone()
+            if not asset:
+                return None
+            rows = conn.execute(
+                """
+                SELECT av.id, av.version_number, av.content, av.diff_summary, av.created_at,
+                       r.problem, r.failed_attempts, r.constraints, r.confidence
+                FROM asset_versions av
+                LEFT JOIN rationale r ON r.version_id = av.id
+                WHERE av.asset_id = ?
+                ORDER BY av.version_number
+                """,
+                (asset_id,)
+            ).fetchall()
+            versions = []
+            current_content = None
+            for v in rows:
+                versions.append({
+                    "version_id": v["id"],
+                    "version_number": v["version_number"],
+                    "content": v["content"],
+                    "diff_summary": v["diff_summary"],
+                    "created_at": str(v["created_at"]) if v["created_at"] else None,
+                    "rationale": None if v["confidence"] is None else {
+                        "problem": v["problem"],
+                        "failed_attempts": v["failed_attempts"],
+                        "constraints": v["constraints"],
+                        "confidence": v["confidence"],
+                    },
+                })
+                if v["id"] == asset["current_version_id"]:
+                    current_content = v["content"]
+            if current_content is None and versions:
+                current_content = versions[-1]["content"]
+            return {
+                "asset_id": asset["id"],
+                "title": asset["title"],
+                "type": asset["type"],
+                "source_tool": asset["source_tool"],
+                "owner_name": asset["owner_name"] or "",
+                "usage_count": asset["usage_count"],
+                "content": current_content,
+                "versions": versions,
+            }
+        finally:
+            conn.close()
+
+    result = await anyio.to_thread.run_sync(fetch)
+    if result is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found")
+    return result
+
 @app.post("/recommend")
 async def recommend_endpoint(req: RecommendRequest):
     # Run the recommend call in a thread pool to avoid blocking the event loop
