@@ -27,6 +27,15 @@
   malformed/empty model output, and the HTTP request body.
 - Focused tests pass: `python -m unittest discover -s tests -p
   'test_onboarding_assistant.py' -v`.
-- Live Gemini/database smoke test remains unavailable because `db/client.py`
-  and seed data are not present in this checkout and no rotated API key was
-  supplied. No secret was used.
+- At implementation time, live Gemini/database smoke test remained unavailable
+  because `db/client.py` and seed data were not present and no rotated API key
+  was supplied. No secret was used.
+
+## 2026-07-11 - Gemini live smoke
+
+- A rotated `GEMINI_API_KEY` became visible to the Codex process.
+- The direct Gemini Free Tier request succeeded through `_call_gemini()` and
+  returned valid JSON: `smoke test passed` with empty citation lists.
+- The first sandbox request failed on DNS resolution; the retry with approved
+  network escalation succeeded. End-to-end `explain_asset()` remains blocked
+  only by the missing shared DB client and seed data.
