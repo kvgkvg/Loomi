@@ -111,3 +111,16 @@
 - Focused runtime tests: 13 passed.
 - Full offline suite: 70 passed, 1 deselected.
 - `conda run --no-capture-output -n loomi-an streamlit run delivery/app.py --server.headless true` started successfully on port 8511.
+
+## 2026-07-11 — Streamlit script import fix
+
+### Root cause
+
+- Streamlit executes `delivery/app.py` as a script and places `delivery/`, not repository root, first on `sys.path`. Absolute imports such as `adapters.chat_adapter` therefore failed in browser sessions even though `import delivery.app` passed tests from repository root.
+
+### Fix and verification
+
+- Bootstrap repository root onto `sys.path` before project imports in the Streamlit entrypoint.
+- Added subprocess regression coverage that removes repository root and executes the file by path.
+- Delivery tests: 3 passed. Full offline suite: 71 passed, 1 deselected.
+- Exact Streamlit command started successfully on port 8511 after the fix.
