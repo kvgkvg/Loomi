@@ -50,3 +50,23 @@
 - Chạy `uv run pytest` kết quả: `38 passed, 1 skipped in 2.26s`.
 - Cả hai test case parameterized cho `sqlite` và `postgres` trong `tests/db/test_pg_compat.py` đều pass thành công trên database PostgreSQL `loomi_test` cục bộ.
 
+
+## 2026-07-12 - Docker web demo brought up and verified end to end (Claude session)
+
+### Completed
+- Ran full docker-compose stack (postgres, chroma, core, api, frontend) on branch feature/app-demo. All healthy; UI at http://localhost:3000.
+- Verified whole pipeline: commit with prompt file -> git poller capture -> Featherless rationale -> embedding -> memory_ready SSE -> /recommend (score 0.64) -> /explain grounded answer with cited versions/constraints.
+- Demo seed commit: prompts/release-notes-generator.md (8cf7381).
+
+### Errors found and fixed (on feature/app-demo, uncommitted)
+- docker-compose.yml: core was only given GEMINI_API_KEY; capture_pipeline needs FEATHERLESS_API_KEY. Added passthrough from .env.
+- core/app.py is_commit_captured: `raw_signal LIKE ?` crashes on Postgres (raw_signal is JSONB). Fixed with CAST(raw_signal AS TEXT).
+- db/schema_pg.sql was missing 7 tables from role-aware feature (conversations, conversation_turns, turn_feedback, rationale_statements, rationale_statement_turns/_versions/_commits) -> explain_asset failed with UndefinedTable. Added PG versions and applied to running DB.
+
+### Gotchas
+- Adapter only captures commits touching .md/.txt/.prompt/.json/.yaml files; merge commits with no such files raise "No supported knowledge files found".
+- Featherless plan (feather_pro_plus) concurrency = 4 units; GLM-5.2 costs 4/request -> only 1 concurrent LLM call. 429 if capture + explain overlap; explain silently returns "unable to generate explanation" (onboarding/assistant.py swallows exceptions). Retry after ~1 min.
+- First core run downloads 79MB onnx embedding model; capture is slow until cached.
+
+### Remaining
+- Commit the three fixes on feature/app-demo and push.
