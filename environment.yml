@@ -1,0 +1,12 @@
+name: loomi-an
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pip
+  - pip:
+      - chromadb>=1.0,<2
+      - openai>=1.0,<3
+      - python-dotenv>=1.0,<2
+      - pytest>=8.0,<9
+      - sentence-transformers>=5.0,<6

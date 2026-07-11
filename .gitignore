@@ -1,3 +1,21 @@
+# data / vector stores
 .data/
-.venv311/
+.loomi/
+chroma/
+*.sqlite
+*.sqlite3
+
+# env / secrets
 .env
+
+# python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.cache/
+
+# virtualenvs
+.venv311/
+
+# worktrees
+.worktrees/
