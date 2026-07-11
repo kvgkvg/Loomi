@@ -1,0 +1,140 @@
+/* Global Custom Styles for Loomi Narrative Canvas */
+
+/* Typography setup */
+@import url('https://fonts.googleapis.com/css2?family=Geist+Mono:wght@300;400;500;600&display=swap');
+
+:root {
+  /* Colors - Light Mode (Porcelain Surface) */
+  --bg-color: #F3F5F2;
+  --text-primary: #1F2320;
+  --text-secondary: #66706A;
+  --accent-color: #3D6B4F;
+  --accent-soft: #C9D9CC;
+  --border-color: #D8DED8;
+  --alert-color: #A65338;
+  --panel-bg: rgba(255, 255, 255, 0.6);
+  --panel-radius: 14px;
+  --input-radius: 12px;
+  
+  --font-sans: 'Cabinet Grotesk', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'Geist Mono', ui-monospace, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* Colors - Dark Mode (Graphite Canvas) */
+    --bg-color: #181A19;
+    --text-primary: #F4F6F2;
+    --text-secondary: #66706A;
+    --accent-color: #3D6B4F;
+    --accent-soft: #233428;
+    --border-color: #373D38;
+    --alert-color: #A65338;
+    --panel-bg: rgba(30, 33, 31, 0.6);
+  }
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background-color: var(--bg-color);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  min-height: 100dvh;
+  overflow-x: hidden;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Accessibility Focus Ring */
+*:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 2px;
+}
+
+/* App layouts */
+.container {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 0 24px;
+  width: 100%;
+}
+
+.display-title {
+  font-size: clamp(2.2rem, 4vw, 4.5rem);
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  max-width: 1000px;
+}
+
+.mono-text {
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+/* Buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-sans);
+  font-size: 15px;
+  font-weight: 500;
+  padding: 10px 18px;
+  border-radius: 9999px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: transform 0.1s ease, background-color 0.2s ease;
+  user-select: none;
+  text-decoration: none;
+  min-height: 44px;
+}
+
+.btn:active {
+  transform: translateY(1px);
+}
+
+.btn-primary {
+  background-color: var(--accent-color);
+  color: #F3F5F2;
+}
+
+.btn-primary:hover {
+  background-color: #2F533D;
+}
+
+.btn-secondary {
+  background-color: transparent;
+  border-color: var(--border-color);
+  color: var(--text-primary);
+}
+
+.btn-secondary:hover {
+  background-color: rgba(100, 100, 100, 0.05);
+}
+
+.btn-danger {
+  background-color: var(--alert-color);
+  color: #F4F6F2;
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary);
+}

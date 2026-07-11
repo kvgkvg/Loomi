@@ -22,3 +22,13 @@ __pycache__/
 # worktrees
 .worktrees/
 .superpowers/
+
+# venv
+.venv/
+
+# node & next.js
+node_modules/
+dist/
+.next/
+*.log
+npm_install.log
