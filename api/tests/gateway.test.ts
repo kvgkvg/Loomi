@@ -145,4 +145,48 @@ describe('Express API Gateway', () => {
       );
     });
   });
+
+  describe('POST /api/github/webhook', () => {
+    it('should trigger capture for pull request head sha', async () => {
+      mockedAxios.post.mockResolvedValueOnce({
+        data: { status: 'triggered', commit_sha: 'abc123', review_status: 'pending' }
+      });
+
+      const res = await request(app)
+        .post('/api/github/webhook')
+        .set('x-github-event', 'pull_request')
+        .send({
+          action: 'opened',
+          pull_request: {
+            head: { sha: 'abc123' },
+            html_url: 'https://github.com/kvgkvg/test_loomi_repo/pull/1'
+          },
+          repository: { full_name: 'kvgkvg/test_loomi_repo' }
+        });
+
+      expect(res.status).toBe(202);
+      expect(res.body.status).toBe('triggered');
+      expect(mockedAxios.post).toHaveBeenCalledWith(
+        expect.stringContaining('/pull-request-trigger'),
+        {
+          commit_sha: 'abc123',
+          action: 'opened',
+          pr_url: 'https://github.com/kvgkvg/test_loomi_repo/pull/1',
+          repository: 'kvgkvg/test_loomi_repo'
+        },
+        { timeout: 120000 }
+      );
+    });
+
+    it('should ignore non pull_request events', async () => {
+      const res = await request(app)
+        .post('/api/github/webhook')
+        .set('x-github-event', 'push')
+        .send({});
+
+      expect(res.status).toBe(202);
+      expect(res.body.status).toBe('ignored');
+      expect(mockedAxios.post).not.toHaveBeenCalled();
+    });
+  });
 });

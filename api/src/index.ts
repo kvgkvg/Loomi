@@ -36,6 +36,15 @@ const CaptureSchema = z.object({
   commit_sha: z.string().min(1, "Commit SHA cannot be empty")
 });
 
+const PullRequestWebhookSchema = z.object({
+  action: z.string().optional(),
+  pull_request: z.object({
+    head: z.object({ sha: z.string().min(1) }),
+    html_url: z.string().optional()
+  }),
+  repository: z.object({ full_name: z.string().optional() }).optional()
+});
+
 // Endpoints
 app.get('/api/health', async (req: Request, res: Response) => {
   try {
@@ -179,6 +188,35 @@ app.post('/api/capture', async (req: Request, res: Response) => {
     const body = CaptureSchema.parse(req.body);
     const response = await axios.post(`${CORE_URL}/capture`, body);
     res.json(response.data);
+  } catch (err: any) {
+    if (err instanceof z.ZodError) {
+      res.status(400).json({ error: 'Validation failed', details: err.errors });
+    } else {
+      const status = err.response?.status || 500;
+      const message = err.response?.data?.detail || err.message;
+      res.status(status).json({ error: message });
+    }
+  }
+});
+
+app.post('/api/github/webhook', async (req: Request, res: Response) => {
+  try {
+    if (req.header('x-github-event') !== 'pull_request') {
+      res.status(202).json({ status: 'ignored' });
+      return;
+    }
+    const body = PullRequestWebhookSchema.parse(req.body);
+    if (!['opened', 'synchronize', 'reopened'].includes(body.action || '')) {
+      res.status(202).json({ status: 'ignored', action: body.action });
+      return;
+    }
+    const response = await axios.post(`${CORE_URL}/pull-request-trigger`, {
+      commit_sha: body.pull_request.head.sha,
+      action: body.action,
+      pr_url: body.pull_request.html_url,
+      repository: body.repository?.full_name
+    }, { timeout: 120000 });
+    res.status(202).json(response.data);
   } catch (err: any) {
     if (err instanceof z.ZodError) {
       res.status(400).json({ error: 'Validation failed', details: err.errors });

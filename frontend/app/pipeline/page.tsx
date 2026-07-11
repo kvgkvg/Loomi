@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react';
 
 // Live pipeline visualization: history from GET /api/runs, live runs from
-// the pipeline_stage SSE events emitted by the core git poller.
+// the pipeline_stage SSE events emitted by PR-triggered capture.
 // Visual design ported from Claude Design "Loomi Pipeline.dc.html".
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
@@ -189,14 +189,14 @@ export default function PipelinePage() {
           </div>
           <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#3fb950' }}>
             <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#3fb950', display: 'inline-block', animation: 'blinkDot 1.6s ease-in-out infinite' }} />
-            Watching main for commits
+            Waiting for pull request events
           </div>
         </div>
         <div style={{ padding: '14px 18px 8px', fontSize: 11, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: '#6e7681' }}>Runs</div>
         <div className="lp-scroll" style={{ flex: 1, overflowY: 'auto', padding: '0 10px 14px', display: 'flex', flexDirection: 'column', gap: 6 }}>
           {runs.length === 0 && (
             <div style={{ padding: '20px 10px', fontSize: 12.5, color: '#6e7681', lineHeight: 1.5 }}>
-              {loadError || 'No runs yet. Push a commit touching a .md/.txt/.prompt/.json/.yaml file to the watched repo.'}
+              {loadError || 'No runs yet. Open or update a pull request touching a .md/.txt/.prompt/.json/.yaml file.'}
             </div>
           )}
           {runs.map((c) => {
@@ -236,7 +236,7 @@ export default function PipelinePage() {
 
         {!active ? (
           <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6e7681', fontSize: 14, padding: 28, textAlign: 'center' }}>
-            Waiting for pipeline runs… push a commit with a prompt/workflow file to the watched repo and it will appear here live.
+            Waiting for pipeline runs… open or update a pull request with a prompt/workflow file and it will appear here.
           </div>
         ) : (
           <>

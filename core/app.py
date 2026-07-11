@@ -441,12 +441,11 @@ async def lifespan(app: FastAPI):
                 logger.warning(f"Embedding warmup skipped: {e}")
         await anyio.to_thread.run_sync(_warm)
 
-    # Start poller loop if not in testing mode
+    # PR webhooks trigger capture now; keep only embedding warmup in runtime.
     poller = None
     warmup = None
     if os.environ.get("LOOMI_TESTING") != "1":
         warmup = asyncio.create_task(_warm_embeddings())
-        poller = asyncio.create_task(git_poller_task())
     yield
     # Stop background tasks
     if warmup:
@@ -484,6 +483,12 @@ class ExplainRequest(BaseModel):
 
 class CaptureRequest(BaseModel):
     commit_sha: str
+
+class PullRequestTriggerRequest(BaseModel):
+    commit_sha: str
+    action: str | None = None
+    pr_url: str | None = None
+    repository: str | None = None
 
 class AdoptRequest(BaseModel):
     asset_id: str
@@ -558,9 +563,10 @@ async def runs_endpoint(limit: int = 20):
                 signal = _parse_signal(row["raw_signal"])
                 run_id = signal.get("commit_sha") or row["id"]
                 processed = bool(row["processed"])
+                pending_review = (not processed) and bool(row["version_id"])
                 header = _run_header(
                     run_id, signal, row["title"], row["received_at"],
-                    "success" if processed else "failed",
+                    "success" if processed else ("running" if pending_review else "failed"),
                 )
                 if processed:
                     detail = {
@@ -571,6 +577,26 @@ async def runs_endpoint(limit: int = 20):
                         "confidence": row["confidence"],
                         "constraints_count": _json_len(row["constraints"]),
                         "failed_count": _json_len(row["failed_attempts"]),
+                    }
+                elif pending_review:
+                    statement_rows = conn.execute(
+                        """
+                        SELECT statement_type, statement
+                        FROM rationale_statements
+                        WHERE version_id = ?
+                        """,
+                        (row["version_id"],),
+                    ).fetchall()
+                    detail = {
+                        "asset_id": row["asset_id"],
+                        "version_id": row["version_id"],
+                        "version_number": row["version_number"],
+                        "problem": next((s["statement"] for s in statement_rows if s["statement_type"] == "problem"), ""),
+                        "confidence": "auto",
+                        "constraints_count": len([s for s in statement_rows if s["statement_type"] == "constraint"]),
+                        "failed_count": len([s for s in statement_rows if s["statement_type"] == "failed_attempt"]),
+                        "review_status": "pending",
+                        "statement_count": len(statement_rows),
                     }
                 else:
                     detail = {"error": "Pipeline did not complete — raw event left processed=0 for retry"}
@@ -771,6 +797,47 @@ async def capture_endpoint(req: CaptureRequest):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e)
         )
+
+@app.post("/pull-request-trigger")
+async def pull_request_trigger_endpoint(req: PullRequestTriggerRequest):
+    try:
+        repo_path = get_tracked_repo()
+        try:
+            await anyio.to_thread.run_sync(run_git, ["fetch", "--all", "--prune"], repo_path)
+        except Exception:
+            logger.info("PR trigger fetch skipped; using existing local refs", exc_info=True)
+
+        capture_res = await anyio.to_thread.run_sync(capture_commit, req.commit_sha, repo_path)
+        process_res = await anyio.to_thread.run_sync(process_raw_event, capture_res["raw_event_id"])
+        if process_res.get("error"):
+            raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, process_res["error"])
+        await event_broadcaster.broadcast(
+            "pull_request_triggered",
+            {
+                "commit_sha": req.commit_sha,
+                "action": req.action,
+                "pr_url": req.pr_url,
+                "repository": req.repository,
+                "asset_id": process_res.get("asset_id"),
+                "version_id": process_res.get("version_id"),
+                "review_status": process_res.get("review_status"),
+            },
+        )
+        return {
+            "status": "triggered",
+            "commit_sha": req.commit_sha,
+            "raw_event_id": capture_res["raw_event_id"],
+            "asset_id": process_res.get("asset_id"),
+            "version_id": process_res.get("version_id"),
+            "review_status": process_res.get("review_status"),
+        }
+    except ValueError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Error in PR trigger for %s: %s", req.commit_sha, e, exc_info=True)
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, str(e))
 
 @app.post("/adopt")
 async def adopt_endpoint(req: AdoptRequest):

@@ -258,3 +258,37 @@
 - Run broader regression after merge before committing/pushing.
 - UI still needs an explicit review queue/approve-all flow for Git rationale if
   demo needs one-click human approval from the browser.
+
+## 2026-07-12 - Switch Git capture from polling to PR trigger
+
+### Completed
+- Disabled the runtime background poller startup; Git capture is now triggered
+  by PR events instead of polling every few seconds.
+- Added core endpoint `POST /pull-request-trigger` that fetches refs best-effort,
+  captures the PR head commit, runs `process_raw_event()`, and leaves the result
+  in pending human-review state.
+- Added gateway endpoint `POST /api/github/webhook` for GitHub `pull_request`
+  events. It triggers only `opened`, `synchronize`, and `reopened`, extracting
+  `pull_request.head.sha` and forwarding it to core.
+- Updated `/runs` history so pending human-review versions show as running with
+  `finalize=skipped`, not failed.
+- Updated `/pipeline` empty-state copy from commit polling to PR-trigger wording.
+
+### Verification
+- RED: core test failed because `pull_request_trigger_endpoint` did not exist;
+  `/runs` then failed because pending review was shown as failed.
+- GREEN: `.venv/bin/pytest -q` passed with `90 passed, 2 skipped`.
+- Gateway: `npm test -- --runTestsByPath tests/gateway.test.ts` passed with
+  `11 passed`.
+- API build: `npm run build` passed.
+- Runtime: created target repo PR `kvgkvg/test_loomi_repo#1` with head commit
+  `5ff50d4`, posted a GitHub-style `pull_request` payload to
+  `/api/github/webhook`, and verified `/api/runs` shows the PR-triggered run as
+  `running` with LLM/persist/draft-embed success and `finalize=skipped` pending
+  human review.
+
+### Remaining
+- Configure the real GitHub webhook to call `http://<host>:3001/api/github/webhook`
+  or tunnel it for github.com; localhost cannot be reached by GitHub directly.
+- If fork PRs are needed, fetch from `pull_request.head.repo.clone_url`; current
+  MVP assumes same-repo PR refs are reachable from the tracked clone.

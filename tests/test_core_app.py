@@ -212,6 +212,53 @@ def test_git_poller_and_capture_flow(temp_git_repo, isolated_runtime, monkeypatc
     assert row["last_polled_sha"] == third_sha
     conn.close()
 
+
+def test_pull_request_trigger_captures_head_commit(temp_git_repo, isolated_runtime, monkeypatch):
+    monkeypatch.chdir(temp_git_repo)
+    monkeypatch.setattr(core_app_module, "get_tracked_repo", lambda: temp_git_repo)
+    monkeypatch.setattr(
+        process_module,
+        "extract_rationale",
+        lambda content, signal: {
+            "problem": "Review PR knowledge",
+            "failed_attempts": [],
+            "constraints": ["Wait for reviewer"],
+            "confidence": "auto",
+        },
+    )
+    monkeypatch.setattr(
+        process_module,
+        "get_vector_collection",
+        lambda: type("Collection", (), {"upsert": lambda self, **kwargs: None})(),
+    )
+
+    prompt = temp_git_repo / "prompts" / "pr-trigger.md"
+    prompt.write_text("PR-triggered prompt update", encoding="utf-8")
+    _git(temp_git_repo, "add", ".")
+    _git(temp_git_repo, "commit", "-m", "pr prompt update")
+    head_sha = _git(temp_git_repo, "rev-parse", "HEAD")
+
+    data = asyncio.run(core_app_module.pull_request_trigger_endpoint(
+        core_app_module.PullRequestTriggerRequest(commit_sha=head_sha, action="opened")
+    ))
+
+    assert data["status"] == "triggered"
+    assert data["commit_sha"] == head_sha
+    assert data["review_status"] == "pending"
+    conn = get_pg_connection()
+    row = conn.execute(
+        "SELECT processed, processed_asset_version_id FROM raw_events WHERE title = ?",
+        ("pr prompt update",),
+    ).fetchone()
+    assert row["processed"] == 0
+    assert row["processed_asset_version_id"] == data["version_id"]
+    runs = asyncio.run(core_app_module.runs_endpoint())
+    run = next(r for r in runs["runs"] if r["full_sha"] == head_sha)
+    assert run["status"] == "running"
+    assert run["stages"][-1]["key"] == "finalize"
+    assert run["stages"][-1]["status"] == "skipped"
+
+
 def test_adopt_endpoint(isolated_runtime):
     conn = get_pg_connection()
     conn.execute("INSERT INTO users (id, name, email) VALUES ('u1', 'An', 'an@example.com')")
