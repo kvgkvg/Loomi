@@ -14,6 +14,7 @@ import core.app as core_app_module
 import capture_pipeline.process as process_module
 import onboarding.assistant as assistant_module
 import recommend.engine as recommend_module
+import rationale.review as review_module
 
 
 class FakeCollection:
@@ -75,6 +76,33 @@ def test_health_endpoint(isolated_runtime):
     assert data["database"] == "ok"
     assert data["vector_store"] == "ok"
 
+
+@pytest.mark.anyio
+async def test_lifespan_starts_git_poller_outside_tests(monkeypatch):
+    started = []
+
+    class FakeTask:
+        def __init__(self, coro):
+            started.append(coro.cr_code.co_name)
+            coro.close()
+
+        def cancel(self):
+            pass
+
+        def __await__(self):
+            if False:
+                yield None
+            return None
+
+    monkeypatch.delenv("LOOMI_TESTING", raising=False)
+    monkeypatch.setattr(core_app_module.subprocess, "run", lambda *args, **kwargs: None)
+    monkeypatch.setattr(core_app_module.asyncio, "create_task", lambda coro: FakeTask(coro))
+
+    async with core_app_module.lifespan(core_app_module.app):
+        pass
+
+    assert "git_poller_task" in started
+
 def test_recommend_endpoint(isolated_runtime):
     # Populate mock assets/vectors
     col = get_vector_collection()
@@ -126,6 +154,11 @@ def test_git_poller_and_capture_flow(temp_git_repo, isolated_runtime, monkeypatc
     )
     monkeypatch.setattr(
         process_module,
+        "get_vector_collection",
+        lambda: type("Collection", (), {"upsert": lambda self, **kwargs: None})(),
+    )
+    monkeypatch.setattr(
+        review_module,
         "get_vector_collection",
         lambda: type("Collection", (), {"upsert": lambda self, **kwargs: None})(),
     )
@@ -213,14 +246,13 @@ def test_git_poller_and_capture_flow(temp_git_repo, isolated_runtime, monkeypatc
     conn.close()
 
 
-def test_pull_request_trigger_captures_head_commit(temp_git_repo, isolated_runtime, monkeypatch):
+def test_review_version_endpoint_approves_pending_statements(temp_git_repo, isolated_runtime, monkeypatch):
     monkeypatch.chdir(temp_git_repo)
-    monkeypatch.setattr(core_app_module, "get_tracked_repo", lambda: temp_git_repo)
     monkeypatch.setattr(
         process_module,
         "extract_rationale",
         lambda content, signal: {
-            "problem": "Review PR knowledge",
+            "problem": "Review captured knowledge",
             "failed_attempts": [],
             "constraints": ["Wait for reviewer"],
             "confidence": "auto",
@@ -232,31 +264,35 @@ def test_pull_request_trigger_captures_head_commit(temp_git_repo, isolated_runti
         lambda: type("Collection", (), {"upsert": lambda self, **kwargs: None})(),
     )
 
-    prompt = temp_git_repo / "prompts" / "pr-trigger.md"
-    prompt.write_text("PR-triggered prompt update", encoding="utf-8")
+    poll_git_repo(temp_git_repo)
+    prompt = temp_git_repo / "prompts" / "review-me.md"
+    prompt.write_text("Review this prompt update", encoding="utf-8")
     _git(temp_git_repo, "add", ".")
-    _git(temp_git_repo, "commit", "-m", "pr prompt update")
+    _git(temp_git_repo, "commit", "-m", "review prompt update")
     head_sha = _git(temp_git_repo, "rev-parse", "HEAD")
 
-    data = asyncio.run(core_app_module.pull_request_trigger_endpoint(
-        core_app_module.PullRequestTriggerRequest(commit_sha=head_sha, action="opened")
-    ))
-
-    assert data["status"] == "triggered"
-    assert data["commit_sha"] == head_sha
-    assert data["review_status"] == "pending"
+    poll_git_repo(temp_git_repo)
     conn = get_pg_connection()
     row = conn.execute(
-        "SELECT processed, processed_asset_version_id FROM raw_events WHERE title = ?",
-        ("pr prompt update",),
+        "SELECT id, processed_asset_version_id FROM raw_events WHERE title = ?",
+        ("review prompt update",),
     ).fetchone()
-    assert row["processed"] == 0
-    assert row["processed_asset_version_id"] == data["version_id"]
+    assert row["processed_asset_version_id"]
+
+    data = asyncio.run(core_app_module.rationale_review_version_endpoint(
+        row["processed_asset_version_id"],
+        core_app_module.RationaleReviewRequest(reviewer="Reviewer"),
+    ))
+
+    assert data["status"] == "approved"
+    assert data["reviewed"] == 2
+    assert data["version_id"] == row["processed_asset_version_id"]
+    assert conn.execute("SELECT processed FROM raw_events WHERE id = ?", (row["id"],)).fetchone()["processed"] == 1
     runs = asyncio.run(core_app_module.runs_endpoint())
     run = next(r for r in runs["runs"] if r["full_sha"] == head_sha)
-    assert run["status"] == "running"
+    assert run["status"] == "success"
     assert run["stages"][-1]["key"] == "finalize"
-    assert run["stages"][-1]["status"] == "skipped"
+    assert run["stages"][-1]["status"] == "success"
 
 
 def test_adopt_endpoint(isolated_runtime):

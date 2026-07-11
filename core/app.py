@@ -22,6 +22,7 @@ from onboarding.assistant import explain_asset
 from adapters.git_adapter import capture_commit
 from capture_pipeline.process import process_raw_event
 from intent_ci.engine import create_intent_review, list_intent_reviews, resolve_intent_review
+from rationale.review import ReviewError, ensure_reviewer, list_pending_statements, review_statement
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -441,10 +442,10 @@ async def lifespan(app: FastAPI):
                 logger.warning(f"Embedding warmup skipped: {e}")
         await anyio.to_thread.run_sync(_warm)
 
-    # PR webhooks trigger capture now; keep only embedding warmup in runtime.
     poller = None
     warmup = None
     if os.environ.get("LOOMI_TESTING") != "1":
+        poller = asyncio.create_task(git_poller_task())
         warmup = asyncio.create_task(_warm_embeddings())
     yield
     # Stop background tasks
@@ -460,13 +461,7 @@ async def lifespan(app: FastAPI):
             await poller
         except asyncio.CancelledError:
             pass
-    # Stop poller loop
-    if poller:
-        poller.cancel()
-        try:
-            await poller
-        except asyncio.CancelledError:
-            pass
+    MAIN_LOOP = None
 
 app = FastAPI(title="Loomi Core Service", lifespan=lifespan)
 
@@ -484,11 +479,8 @@ class ExplainRequest(BaseModel):
 class CaptureRequest(BaseModel):
     commit_sha: str
 
-class PullRequestTriggerRequest(BaseModel):
-    commit_sha: str
-    action: str | None = None
-    pr_url: str | None = None
-    repository: str | None = None
+class RationaleReviewRequest(BaseModel):
+    reviewer: str = "Reviewer"
 
 class AdoptRequest(BaseModel):
     asset_id: str
@@ -798,45 +790,25 @@ async def capture_endpoint(req: CaptureRequest):
             detail=str(e)
         )
 
-@app.post("/pull-request-trigger")
-async def pull_request_trigger_endpoint(req: PullRequestTriggerRequest):
-    try:
-        repo_path = get_tracked_repo()
-        try:
-            await anyio.to_thread.run_sync(run_git, ["fetch", "--all", "--prune"], repo_path)
-        except Exception:
-            logger.info("PR trigger fetch skipped; using existing local refs", exc_info=True)
+@app.post("/rationale-review/version/{version_id}/approve")
+async def rationale_review_version_endpoint(version_id: str, req: RationaleReviewRequest):
+    def approve_all():
+        reviewer_id = ensure_reviewer(req.reviewer)
+        pending = [item for item in list_pending_statements() if item["version_id"] == version_id]
+        if not pending:
+            raise ReviewError("version has no pending rationale")
+        for item in pending:
+            review_statement(item["id"], "approve", reviewer_id)
+        return {"status": "approved", "version_id": version_id, "reviewed": len(pending)}
 
-        capture_res = await anyio.to_thread.run_sync(capture_commit, req.commit_sha, repo_path)
-        process_res = await anyio.to_thread.run_sync(process_raw_event, capture_res["raw_event_id"])
-        if process_res.get("error"):
-            raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, process_res["error"])
-        await event_broadcaster.broadcast(
-            "pull_request_triggered",
-            {
-                "commit_sha": req.commit_sha,
-                "action": req.action,
-                "pr_url": req.pr_url,
-                "repository": req.repository,
-                "asset_id": process_res.get("asset_id"),
-                "version_id": process_res.get("version_id"),
-                "review_status": process_res.get("review_status"),
-            },
-        )
-        return {
-            "status": "triggered",
-            "commit_sha": req.commit_sha,
-            "raw_event_id": capture_res["raw_event_id"],
-            "asset_id": process_res.get("asset_id"),
-            "version_id": process_res.get("version_id"),
-            "review_status": process_res.get("review_status"),
-        }
-    except ValueError as e:
+    try:
+        result = await anyio.to_thread.run_sync(approve_all)
+        await event_broadcaster.broadcast("rationale_review_resolved", result)
+        return result
+    except ReviewError as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
-    except HTTPException:
-        raise
     except Exception as e:
-        logger.error("Error in PR trigger for %s: %s", req.commit_sha, e, exc_info=True)
+        logger.error("Error approving rationale for version %s: %s", version_id, e, exc_info=True)
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, str(e))
 
 @app.post("/adopt")

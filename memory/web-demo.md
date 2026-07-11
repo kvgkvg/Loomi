@@ -292,3 +292,31 @@
   or tunnel it for github.com; localhost cannot be reached by GitHub directly.
 - If fork PRs are needed, fetch from `pull_request.head.repo.clone_url`; current
   MVP assumes same-repo PR refs are reachable from the tracked clone.
+
+## 2026-07-12 - Revert capture trigger to polling and add pipeline human review button
+
+### Completed
+- Reverted the runtime capture trigger back to the existing Git poller by
+  starting `git_poller_task()` again from FastAPI lifespan and removing the
+  PR webhook/core trigger endpoints.
+- Added `POST /rationale-review/version/{version_id}/approve` in core and
+  `/api/rationale-review/version/:id/approve` in the gateway. The endpoint
+  approves all pending rationale statements for a captured version and lets the
+  existing review backend promote trusted rationale plus the final asset vector.
+- Added a `Human review: approve` button on the pipeline UI's Rationale
+  Extraction detail panel when a run is waiting on review. The button calls the
+  approve-version endpoint and refreshes `/api/runs`.
+
+### Verification
+- RED: focused core tests failed because lifespan did not start the poller and
+  the approve-version endpoint did not exist.
+- GREEN: `.venv/bin/pytest tests/test_core_app.py::test_lifespan_starts_git_poller_outside_tests tests/test_core_app.py::test_review_version_endpoint_approves_pending_statements -q`
+  passed with `2 passed`.
+- Regression: `.venv/bin/pytest -q` passed with `91 passed, 2 skipped`.
+- Gateway: `npm test -- --runTestsByPath tests/gateway.test.ts` passed with
+  `10 passed`.
+- Builds: `npm run build` passed in both `api` and `frontend`.
+
+### Remaining
+- Restart/rebuild the local Docker stack before using `http://localhost:3000/pipeline`
+  if containers are still running the previous PR-trigger image.

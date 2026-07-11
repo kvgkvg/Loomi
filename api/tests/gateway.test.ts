@@ -146,47 +146,23 @@ describe('Express API Gateway', () => {
     });
   });
 
-  describe('POST /api/github/webhook', () => {
-    it('should trigger capture for pull request head sha', async () => {
+  describe('POST /api/rationale-review/version/:id/approve', () => {
+    it('should forward rationale approve requests', async () => {
       mockedAxios.post.mockResolvedValueOnce({
-        data: { status: 'triggered', commit_sha: 'abc123', review_status: 'pending' }
+        data: { status: 'approved', version_id: 'v1', reviewed: 2 }
       });
 
       const res = await request(app)
-        .post('/api/github/webhook')
-        .set('x-github-event', 'pull_request')
-        .send({
-          action: 'opened',
-          pull_request: {
-            head: { sha: 'abc123' },
-            html_url: 'https://github.com/kvgkvg/test_loomi_repo/pull/1'
-          },
-          repository: { full_name: 'kvgkvg/test_loomi_repo' }
-        });
+        .post('/api/rationale-review/version/v1/approve')
+        .send({ reviewer: 'Reviewer' });
 
-      expect(res.status).toBe(202);
-      expect(res.body.status).toBe('triggered');
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe('approved');
       expect(mockedAxios.post).toHaveBeenCalledWith(
-        expect.stringContaining('/pull-request-trigger'),
-        {
-          commit_sha: 'abc123',
-          action: 'opened',
-          pr_url: 'https://github.com/kvgkvg/test_loomi_repo/pull/1',
-          repository: 'kvgkvg/test_loomi_repo'
-        },
+        expect.stringContaining('/rationale-review/version/v1/approve'),
+        { reviewer: 'Reviewer' },
         { timeout: 120000 }
       );
-    });
-
-    it('should ignore non pull_request events', async () => {
-      const res = await request(app)
-        .post('/api/github/webhook')
-        .set('x-github-event', 'push')
-        .send({});
-
-      expect(res.status).toBe(202);
-      expect(res.body.status).toBe('ignored');
-      expect(mockedAxios.post).not.toHaveBeenCalled();
     });
   });
 });

@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react';
 
 // Live pipeline visualization: history from GET /api/runs, live runs from
-// the pipeline_stage SSE events emitted by PR-triggered capture.
+// the pipeline_stage SSE events emitted by the Git poller.
 // Visual design ported from Claude Design "Loomi Pipeline.dc.html".
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
@@ -47,6 +47,9 @@ function defaultSelected(stages: Stage[]): number {
   if (failed !== -1) return failed;
   const running = stages.findIndex((s) => s.status === 'running');
   if (running !== -1) return running;
+  if (stages.some((s) => s.key === 'finalize' && s.result?.review_status === 'pending')) {
+    return STAGE_DEFS.findIndex((s) => s.key === 'llm');
+  }
   return STAGE_DEFS.length - 1;
 }
 
@@ -97,22 +100,27 @@ export default function PipelinePage() {
   const [runs, setRuns] = useState<Run[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [reviewBusy, setReviewBusy] = useState(false);
+  const [reviewMessage, setReviewMessage] = useState<string | null>(null);
+
+  const loadRuns = () => fetch(`${API_BASE}/api/runs`)
+    .then((res) => res.json())
+    .then((data) => {
+      const loaded: Run[] = (data.runs || []).map((r: Omit<Run, 'selectedStage'>) => ({
+        ...r,
+        selectedStage: defaultSelected(r.stages || emptyStages()),
+        stages: r.stages || emptyStages(),
+      }));
+      setRuns((prev) => {
+        const loadedIds = new Set(loaded.map((r) => r.run_id));
+        return [...loaded, ...prev.filter((r) => !loadedIds.has(r.run_id))];
+      });
+      return loaded;
+    });
 
   // Load run history
   useEffect(() => {
-    fetch(`${API_BASE}/api/runs`)
-      .then((res) => res.json())
-      .then((data) => {
-        const loaded: Run[] = (data.runs || []).map((r: Omit<Run, 'selectedStage'>) => ({
-          ...r,
-          selectedStage: defaultSelected(r.stages || emptyStages()),
-          stages: r.stages || emptyStages(),
-        }));
-        setRuns((prev) => {
-          const liveIds = new Set(prev.map((p) => p.run_id));
-          return [...prev, ...loaded.filter((r) => !liveIds.has(r.run_id))];
-        });
-      })
+    loadRuns()
       .catch((err) => {
         console.error('Failed to load runs:', err);
         setLoadError('Could not load run history from the API.');
@@ -161,6 +169,30 @@ export default function PipelinePage() {
 
   const active = runs.find((r) => r.run_id === activeId) || runs[0];
   const mono = "'IBM Plex Mono', var(--font-mono), monospace";
+  const pendingReview = active?.stages.find((s) => s.key === 'finalize' && s.result?.review_status === 'pending');
+  const pendingVersionId = typeof pendingReview?.result?.version_id === 'string' ? pendingReview.result.version_id : null;
+
+  async function approveRationale() {
+    if (!pendingVersionId || reviewBusy) return;
+    setReviewBusy(true);
+    setReviewMessage(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/rationale-review/version/${encodeURIComponent(String(pendingVersionId))}/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reviewer: 'Pipeline UI' }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error || 'Review failed');
+      setReviewMessage('Approved. Finalize stage completed.');
+      const loaded = await loadRuns();
+      const refreshed = loaded.find((r) => r.run_id === active.run_id);
+      if (refreshed) setActiveId(refreshed.run_id);
+    } catch (err) {
+      setReviewMessage(err instanceof Error ? err.message : 'Review failed');
+    } finally {
+      setReviewBusy(false);
+    }
+  }
 
   return (
     <div style={{ height: '100vh', width: '100%', display: 'flex', background: '#0d1117', color: '#e6edf3', fontFamily: "'IBM Plex Sans', system-ui, sans-serif", overflow: 'hidden' }}>
@@ -189,14 +221,14 @@ export default function PipelinePage() {
           </div>
           <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#3fb950' }}>
             <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#3fb950', display: 'inline-block', animation: 'blinkDot 1.6s ease-in-out infinite' }} />
-            Waiting for pull request events
+            Polling tracked repository
           </div>
         </div>
         <div style={{ padding: '14px 18px 8px', fontSize: 11, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: '#6e7681' }}>Runs</div>
         <div className="lp-scroll" style={{ flex: 1, overflowY: 'auto', padding: '0 10px 14px', display: 'flex', flexDirection: 'column', gap: 6 }}>
           {runs.length === 0 && (
             <div style={{ padding: '20px 10px', fontSize: 12.5, color: '#6e7681', lineHeight: 1.5 }}>
-              {loadError || 'No runs yet. Open or update a pull request touching a .md/.txt/.prompt/.json/.yaml file.'}
+              {loadError || 'No runs yet. Push a .md/.txt/.prompt/.json/.yaml file to the tracked repo.'}
             </div>
           )}
           {runs.map((c) => {
@@ -236,7 +268,7 @@ export default function PipelinePage() {
 
         {!active ? (
           <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6e7681', fontSize: 14, padding: 28, textAlign: 'center' }}>
-            Waiting for pipeline runs… open or update a pull request with a prompt/workflow file and it will appear here.
+            Waiting for pipeline runs… push a prompt/workflow file to the tracked repository and the poller will pick it up.
           </div>
         ) : (
           <>
@@ -338,9 +370,27 @@ export default function PipelinePage() {
                       <span style={{ fontSize: 12.5, fontWeight: 600, color: '#e6edf3' }}>{selDef.name}</span>
                       <span style={{ fontSize: 11, color: '#6e7681', fontFamily: mono }}>{selDef.sub}</span>
                     </div>
-                    <span style={{ fontSize: 11, fontWeight: 600, color: selStatusColor }}>{selStatusLabel}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      {selDef.key === 'llm' && pendingVersionId && (
+                        <button
+                          type="button"
+                          onClick={approveRationale}
+                          disabled={reviewBusy}
+                          style={{ border: '1px solid #d29922', background: reviewBusy ? '#21262d' : 'rgba(210,153,34,0.12)', color: '#f0c36a', borderRadius: 6, padding: '5px 9px', fontSize: 11, fontWeight: 600, cursor: reviewBusy ? 'default' : 'pointer' }}
+                        >
+                          {reviewBusy ? 'Approving…' : 'Human review: approve'}
+                        </button>
+                      )}
+                      <span style={{ fontSize: 11, fontWeight: 600, color: selStatusColor }}>{selStatusLabel}</span>
+                    </div>
                   </div>
                   <div className="lp-scroll" style={{ flex: 1, overflowY: 'auto', padding: '14px 18px', fontFamily: mono, fontSize: 12.5, lineHeight: 1.85 }}>
+                    {selDef.key === 'llm' && pendingVersionId && (
+                      <div style={{ marginBottom: 12, padding: 10, border: '1px solid rgba(210,153,34,0.35)', borderRadius: 7, background: 'rgba(210,153,34,0.08)', color: '#f0c36a', fontFamily: "'IBM Plex Sans', system-ui, sans-serif", fontSize: 12.5, lineHeight: 1.45 }}>
+                        Human review required before trusted rationale is finalized. Draft embedding is already precomputed for fast approval.
+                      </div>
+                    )}
+                    {reviewMessage && <div style={{ marginBottom: 10, color: reviewMessage.indexOf('Approved') === 0 ? '#3fb950' : '#f85149' }}>› {reviewMessage}</div>}
                     {stage.log.map((t, i) => (
                       <div key={i} style={{ color: lineColor(t), whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>› {t}</div>
                     ))}
