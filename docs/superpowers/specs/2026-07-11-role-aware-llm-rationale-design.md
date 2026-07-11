@@ -22,6 +22,7 @@ Loomi currently captures Git changes and extracts one rationale per asset versio
 - Extract rationale explicitly stated in chat.
 - Infer likely rationale when chat does not state it, using prompt revisions, responses, feedback, and optionally linked Git evidence.
 - Clearly label explicit evidence and AI inference.
+- Require user review of LLM-produced rationale before treating it as trusted organizational knowledge.
 - Personalize ranking, result cards, and onboarding explanation for a supplied role.
 - Preserve current SQLite, Chroma, Featherless, MiniLM, and Streamlit choices.
 
@@ -42,6 +43,7 @@ ChatGPT / Claude export
   -> canonical raw event
   -> conversation turns and feedback
   -> LLM rationale extraction/inference
+  -> user approve / edit / reject
   -> distilled asset + asset version + rationale statements
   -> Chroma upsert of distilled asset
 
@@ -106,9 +108,14 @@ Use external turn IDs when available. Otherwise derive deterministic identity fr
 - `version_id`
 - `statement_type`: `problem`, `intent`, `constraint`, `failed_attempt`, or `outcome`
 - `statement`
+- `original_statement`: immutable LLM output retained when reviewer edits
 - `evidence_kind`: `observed` or `inferred`
 - `confidence`: numeric value from 0 to 1
 - `alternative_explanation`
+- `review_status`: `pending`, `approved`, `edited`, or `rejected`
+- `reviewer_id`
+- `reviewed_at`
+- `review_note`
 - `created_at`
 
 Citation join tables associate statements with source turns, asset versions, and optional Git commits. The existing `rationale` row remains a compact compatibility summary for current recommendation and onboarding code.
@@ -147,6 +154,32 @@ When chat is silent, Featherless may infer a hypothesis from:
 Inferred statements require confidence, citations, and an alternative explanation when ambiguity is material. They never overwrite observed evidence. Conflicts remain visible.
 
 UI labels statements as `Explicit` or `AI-inferred`. Low-confidence text uses qualified wording such as “likely” rather than asserting a fact.
+
+## Human review gate
+
+Every LLM-produced rationale statement is first stored as `pending`, whether extracted from prompt history or inferred from prompt/code evidence. The review UI shows:
+
+- proposed statement and statement type;
+- `Explicit` or `AI-inferred` label;
+- confidence and alternative explanation;
+- cited conversation turns, asset-version diff, and linked code/commit evidence;
+- before/after prompt revision when available.
+
+Reviewer actions:
+
+- **Approve:** retain statement unchanged and set `review_status=approved`.
+- **Edit and approve:** preserve original LLM text in audit metadata, store reviewer text, set `review_status=edited`, and record reviewer attribution.
+- **Reject:** retain record for audit/retraining feedback, set `review_status=rejected`, and exclude it from trusted retrieval.
+
+For MVP, reviewer identity is the imported conversation/asset owner or the explicitly selected demo user. This provides attribution only; it is not an authorization system.
+
+Only `approved` and `edited` statements update the compact `rationale` summary, contribute to Chroma's distilled asset document, affect recommendation scoring, or appear as established knowledge in onboarding. Pending statements may appear only inside the review queue. Rejected statements never influence retrieval or explanation.
+
+When no reviewer is available, capture remains retry-safe and asset history remains stored, but rationale stays pending. This is not a pipeline failure: processing status and review status are separate.
+
+### Codebase evidence boundary
+
+Inference may use code only when Loomi has a bounded evidence reference, such as repository root plus captured paths, an asset-version diff, or an explicitly linked Git commit. The LLM does not scan an arbitrary organization codebase. Review UI cites file paths and commit IDs used by the inference. Missing links mean codebase evidence is omitted.
 
 ## Role-aware view
 
@@ -200,6 +233,8 @@ Output should add:
 
 Post-validation removes citations that do not resolve to loaded evidence. Missing evidence returns an explicit limitation instead of invented rationale.
 
+By default onboarding consumes only `approved` and `edited` rationale. A reviewer-facing preview may render pending rationale, clearly isolated from normal onboarding results.
+
 ## Import, safety, and retry
 
 - Conversation import is manual and opt-in.
@@ -209,6 +244,7 @@ Post-validation removes citations that do not resolve to loaded evidence. Missin
 - Malformed export items produce item-level diagnostics.
 - LLM or parsing failure leaves source data pending for retry.
 - Asset, version, summary rationale, statements, and citations persist transactionally.
+- Review transitions use parameterized updates and record reviewer attribution; repeated approve/reject actions are idempotent.
 - Chroma remains outside SQLite transaction; deterministic asset IDs make retry safe.
 - Role-lens failure uses fallback and does not block recommendation or onboarding.
 
@@ -218,6 +254,7 @@ Streamlit adds:
 
 - role selector/input;
 - role-aware result-card fields and primary actions;
+- rationale review queue with approve, edit-and-approve, and reject actions;
 - onboarding explanation adjusted to role;
 - `Explicit` and `AI-inferred` badges;
 - expandable citations and confidence;
@@ -229,6 +266,9 @@ Streamlit adds:
 - Idempotent re-import tests.
 - Redaction tests before LLM and embedding boundaries.
 - Mocked Featherless tests for observed extraction, inference, alternatives, and conflicts.
+- Review state-machine tests for pending, approved, edited, and rejected statements.
+- Trust-boundary tests proving pending/rejected rationale cannot affect Chroma, recommendation, or onboarding.
+- Audit tests preserving original LLM output after reviewer edits.
 - Citation validation requiring every displayed source to resolve in SQLite.
 - Negative test proving unlinked Git commits never contribute to rationale.
 - Role-lens schema, fallback, and cache tests.
@@ -239,12 +279,13 @@ Streamlit adds:
 ## MVP rollout
 
 1. Chat export schema, adapter, redaction, and idempotent import.
-2. Distillation and observed/inferred rationale statements.
-3. Role lens plus onboarding presentation.
-4. Bounded role-aware recommendation scoring.
-5. Streamlit role cards, evidence badges, and revision timeline.
+2. Distillation and pending observed/inferred rationale statements.
+3. Human review queue and trusted-rationale promotion.
+4. Role lens plus onboarding presentation.
+5. Bounded role-aware recommendation scoring.
+6. Streamlit role cards, evidence badges, and revision timeline.
 
-Demo flow: import one conversation with prompt refinements, distill a reusable prompt, optionally attach a Git outcome, ask why it exists as Intern and Tech Lead, then show another employee receiving the prompt through recommendation.
+Demo flow: import one conversation with prompt refinements, generate rationale from chat plus optionally linked code evidence, let the creator edit/approve it, distill a trusted reusable prompt, ask why it exists as Intern and Tech Lead, then show another employee receiving it through recommendation.
 
 ## Stack alignment
 
@@ -253,4 +294,3 @@ Demo flow: import one conversation with prompt refinements, distill a reusable p
 - Featherless OpenAI-compatible API with current GLM-5.2 default
 - Streamlit
 - Existing pytest suite
-

@@ -51,3 +51,17 @@
 ### Current spec
 
 - `docs/superpowers/specs/2026-07-11-role-aware-llm-rationale-design.md`
+
+## 2026-07-11 — human rationale review added
+
+### Decision
+
+- Every LLM-produced rationale starts `pending`, including explicit extraction and inference from prompt history or bounded code evidence.
+- Reviewer can approve, edit-and-approve, or reject with attribution and audit history.
+- Only approved/edited rationale enters compact summary, Chroma document, recommendation scoring, and normal onboarding.
+- Pending review is separate from capture processing failure.
+- Codebase evidence must be bounded by captured paths, version diff, or explicit commit link; no arbitrary repository scan.
+
+### Next step
+
+- Implementation plan must include review state transitions, trusted-rationale promotion, Chroma refresh after approval, and negative tests for pending/rejected leakage.
