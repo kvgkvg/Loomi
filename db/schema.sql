@@ -90,3 +90,10 @@ CREATE TABLE IF NOT EXISTS asset_relations (
   relation_type TEXT CHECK (relation_type IN ('USES_PROMPT', 'CALLS_AGENT', 'PART_OF_WORKFLOW')),
   CHECK (source_asset_id <> target_asset_id)
 );
+
+CREATE TABLE IF NOT EXISTS git_poll_state (
+  id TEXT PRIMARY KEY,
+  last_observed_sha TEXT,
+  last_processed_sha TEXT,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);

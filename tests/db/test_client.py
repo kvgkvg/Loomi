@@ -17,6 +17,7 @@ def test_connection_initializes_required_tables(isolated_runtime):
         "asset_usage",
         "tags",
         "asset_tags",
+        "git_poll_state",
     } <= names
 
 

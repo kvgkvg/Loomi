@@ -73,3 +73,18 @@
   `/api/v2/heartbeat` endpoint with that executable.
 - Verified `docker compose build chroma`, live startup through healthy state,
   direct curl heartbeat output, Compose config, and clean diff checks.
+
+## 2026-07-11 - Portable Python storage
+
+- Added PostgreSQL selection behind `DATABASE_URL` without changing the public
+  `get_pg_connection()` contract; a small DB-API adapter translates SQLite `?`
+  placeholders and preserves name/index row access used by existing modules.
+- Added idempotent PostgreSQL schema bootstrap and `git_poll_state` to both SQL
+  dialects for the upcoming persisted poller.
+- Added remote Chroma selection through `CHROMA_HOST`/`CHROMA_PORT`, retaining
+  embedded Chroma when the host is absent and keeping the collection API intact.
+- Added `psycopg[binary]` as the only new runtime dependency; no ORM or domain
+  signature changes were introduced.
+- Focused tests pass 5/5 and the offline suite passes 39 tests with 1 live test
+  deselected. The sandboxed run could not create Chroma's home cache; rerunning
+  with access to the existing model cache passed.

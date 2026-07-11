@@ -2,6 +2,7 @@
 # Embeddings are Chroma-managed (Chroma's default all-MiniLM-L6-v2 ONNX) —
 # no sentence-transformers/torch needed; one embedding backend for the team.
 chromadb>=1.0,<2
+psycopg[binary]>=3.2,<4
 pytest>=8.0
 
 # capture pipeline (Ấn) — Featherless via OpenAI-compatible client
