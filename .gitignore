@@ -21,6 +21,8 @@ __pycache__/
 
 # worktrees
 .worktrees/
+
+# local visual brainstorming artifacts
 .superpowers/
 
 # venv
@@ -32,3 +34,6 @@ dist/
 .next/
 *.log
 npm_install.log
+
+# external demo repos
+.demo-repos/

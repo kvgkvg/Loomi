@@ -1,6 +1,6 @@
 import math
 import pytest
-from recommend.scoring import compute, W_COS, W_CONF, W_USE
+from recommend.scoring import compute, role_adjusted, W_COS, W_CONF, W_USE
 
 
 def test_weights_sum_to_one():
@@ -27,3 +27,11 @@ def test_usage_boost_saturates_at_20():
 
 def test_unknown_confidence_treated_as_auto():
     assert compute(0.5, "", 0) == compute(0.5, "auto", 0)
+
+
+def test_role_adjustment_is_bounded_and_semantic_gap_wins():
+    lens = {"goals": ["risk"], "ranking_weights": {"role": 0.2}}
+    relevant = role_adjusted(0.8, "implementation", lens)
+    role_match = role_adjusted(0.3, "risk management", lens)
+    assert relevant > role_match
+    assert 0 <= relevant <= 1

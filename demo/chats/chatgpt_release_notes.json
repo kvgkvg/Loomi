@@ -1,0 +1,77 @@
+{
+  "id": "demo-chatgpt-release-notes-001",
+  "title": "Release notes generator from merged PRs",
+  "_loomi_owner": "Khang",
+  "mapping": {
+    "node-1": {
+      "id": "turn-rn-1",
+      "parent": null,
+      "message": {
+        "author": { "role": "user" },
+        "create_time": "2026-07-08T09:12:00Z",
+        "metadata": { "model_slug": "gpt-4o" },
+        "content": {
+          "parts": [
+            "I need a prompt that turns our list of merged PRs into customer-facing release notes. First try: 'Summarize these pull requests into release notes.' The output reads like a git log — internal jargon, ticket numbers, no grouping."
+          ]
+        }
+      }
+    },
+    "node-2": {
+      "id": "turn-rn-2",
+      "parent": "turn-rn-1",
+      "message": {
+        "author": { "role": "assistant" },
+        "create_time": "2026-07-08T09:13:10Z",
+        "metadata": { "model_slug": "gpt-4o" },
+        "content": {
+          "parts": [
+            "The model mirrors the input register. Tell it the audience is non-technical customers, ban internal identifiers explicitly, and give it grouping categories (Features, Improvements, Fixes). Also require it to drop PRs that are pure refactors or CI changes."
+          ]
+        }
+      }
+    },
+    "node-3": {
+      "id": "turn-rn-3",
+      "parent": "turn-rn-2",
+      "message": {
+        "author": { "role": "user" },
+        "create_time": "2026-07-08T09:20:45Z",
+        "metadata": { "model_slug": "gpt-4o" },
+        "content": {
+          "parts": [
+            "Better, but it invented a feature that wasn't in any PR ('dark mode support') and translated one item into marketing fluff. We ship weekly, so this has to be trustworthy without an editor pass."
+          ]
+        }
+      }
+    },
+    "node-4": {
+      "id": "turn-rn-4",
+      "parent": "turn-rn-3",
+      "message": {
+        "author": { "role": "assistant" },
+        "create_time": "2026-07-08T09:21:50Z",
+        "metadata": { "model_slug": "gpt-4o" },
+        "content": {
+          "parts": [
+            "Add two hard rules: every bullet must cite the PR number it came from in parentheses, and if no PR matches a category the section is omitted rather than padded. Citation forces grounding — the model can't cite a PR for an invented feature. Keep temperature low."
+          ]
+        }
+      }
+    },
+    "node-5": {
+      "id": "turn-rn-5",
+      "parent": "turn-rn-4",
+      "message": {
+        "author": { "role": "user" },
+        "create_time": "2026-07-08T09:30:12Z",
+        "metadata": { "model_slug": "gpt-4o" },
+        "content": {
+          "parts": [
+            "That works — citations killed the hallucinated bullets. Final prompt I'm saving for the team:\n\nYou are a release notes writer for a B2B SaaS product. Input: a list of merged PRs (title, description, PR number). Output: customer-facing release notes grouped under Features, Improvements, Fixes.\nRules:\n- Audience is non-technical customers; no internal jargon, ticket IDs, or code identifiers.\n- Every bullet cites its source PR number in parentheses.\n- Skip PRs that are refactors, tests, or CI-only changes.\n- Omit a section entirely if it has no items — never pad.\n- One sentence per bullet, plain language, no marketing superlatives."
+          ]
+        }
+      }
+    }
+  }
+}

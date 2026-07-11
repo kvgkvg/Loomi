@@ -67,31 +67,39 @@ def _insert_event(*, paths=None, title="add support prompt", content="Route tick
     return event_id
 
 
-def test_process_creates_searchable_asset(isolated_runtime, fake_services):
+def test_process_creates_pending_review_with_draft_embedding(isolated_runtime, fake_services):
     raw_event = _insert_event()
 
     result = process_raw_event(raw_event)
 
     assert result["rationale"] == RATIONALE
-    assert result["embedded"] is True
+    assert result["embedded"] is False
+    assert result["draft_embedded"] is True
+    assert result["review_status"] == "pending"
+    assert len(result["statement_ids"]) == 3
     collection = fake_services
-    record = collection.records[result["asset_id"]]
+    record = collection.records[f"draft:{result['version_id']}"]
     assert record["document"] == "Route tickets\n\nProblem: Reduce misroutes"
     assert record["metadata"] == {
         "asset_id": result["asset_id"],
         "version_id": result["version_id"],
         "source_tool": "git",
+        "review_status": "pending",
     }
     conn = get_pg_connection()
     event = conn.execute(
         "SELECT processed, processed_asset_version_id FROM raw_events WHERE id = ?",
         (raw_event,),
     ).fetchone()
-    assert event["processed"] == 1
+    assert event["processed"] == 0
     assert event["processed_asset_version_id"] == result["version_id"]
+    assert conn.execute("SELECT count(*) FROM rationale").fetchone()[0] == 0
+    assert conn.execute(
+        "SELECT count(*) FROM rationale_statements WHERE review_status = 'pending'"
+    ).fetchone()[0] == 3
 
 
-def test_process_is_idempotent(isolated_runtime, fake_services):
+def test_process_is_idempotent_while_review_pending(isolated_runtime, fake_services):
     raw_event = _insert_event()
 
     first = process_raw_event(raw_event)
@@ -100,6 +108,7 @@ def test_process_is_idempotent(isolated_runtime, fake_services):
     assert second == first
     conn = get_pg_connection()
     assert conn.execute("SELECT count(*) FROM asset_versions").fetchone()[0] == 1
+    assert conn.execute("SELECT count(*) FROM rationale_statements").fetchone()[0] == 3
 
 
 def test_later_commit_appends_version(isolated_runtime, fake_services):

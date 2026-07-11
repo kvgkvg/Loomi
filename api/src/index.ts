@@ -16,12 +16,14 @@ app.use(express.json());
 // Zod schemas for request validation
 const RecommendSchema = z.object({
   task_description: z.string().min(1, "Task description cannot be empty"),
-  top_k: z.number().int().positive().optional().default(5)
+  top_k: z.number().int().positive().optional().default(5),
+  role: z.string().nullable().optional()
 });
 
 const ExplainSchema = z.object({
   asset_id: z.string().uuid("Invalid asset ID format"),
-  question: z.string().nullable().optional()
+  question: z.string().nullable().optional(),
+  role: z.string().nullable().optional()
 });
 
 const AdoptSchema = z.object({
@@ -52,6 +54,47 @@ app.get('/api/health', async (req: Request, res: Response) => {
         error: err.message
       }
     });
+  }
+});
+
+app.get('/api/repo-info', async (req: Request, res: Response) => {
+  try {
+    const response = await axios.get(`${CORE_URL}/repo-info`, { timeout: 3000 });
+    res.json(response.data);
+  } catch (err: any) {
+    res.status(503).json({ error: err.message });
+  }
+});
+
+const TrackSchema = z.object({
+  repo: z.string().min(1, "Repo cannot be empty")
+});
+
+app.post('/api/track', async (req: Request, res: Response) => {
+  try {
+    const body = TrackSchema.parse(req.body);
+    // Cloning a remote repo can take a while; allow a generous timeout.
+    const response = await axios.post(`${CORE_URL}/track`, body, { timeout: 120000 });
+    res.json(response.data);
+  } catch (err: any) {
+    if (err instanceof z.ZodError) {
+      res.status(400).json({ error: 'Validation failed', details: err.errors });
+    } else {
+      const status = err.response?.status || 500;
+      const message = err.response?.data?.detail || err.message;
+      res.status(status).json({ error: message });
+    }
+  }
+});
+
+app.get('/api/asset/:id', async (req: Request, res: Response) => {
+  try {
+    const response = await axios.get(`${CORE_URL}/asset/${encodeURIComponent(req.params.id)}`, { timeout: 5000 });
+    res.json(response.data);
+  } catch (err: any) {
+    const status = err.response?.status || 500;
+    const message = err.response?.data?.detail || err.message;
+    res.status(status).json({ error: message });
   }
 });
 
@@ -135,6 +178,64 @@ app.post('/api/capture', async (req: Request, res: Response) => {
   try {
     const body = CaptureSchema.parse(req.body);
     const response = await axios.post(`${CORE_URL}/capture`, body);
+    res.json(response.data);
+  } catch (err: any) {
+    if (err instanceof z.ZodError) {
+      res.status(400).json({ error: 'Validation failed', details: err.errors });
+    } else {
+      const status = err.response?.status || 500;
+      const message = err.response?.data?.detail || err.message;
+      res.status(status).json({ error: message });
+    }
+  }
+});
+
+const IntentReviewSchema = z.object({
+  prompt: z.string().min(1, "Prompt cannot be empty"),
+  source_env: z.string().optional().default("unknown"),
+  user_name: z.string().nullable().optional(),
+  chat_history: z.array(z.string().min(1)).max(20).optional()
+});
+
+const IntentResolveSchema = z.object({
+  action: z.enum(["approve", "reject"]),
+  reviewer: z.string().nullable().optional()
+});
+
+app.post('/api/intent-review', async (req: Request, res: Response) => {
+  try {
+    const body = IntentReviewSchema.parse(req.body);
+    // Checks include an LLM call; allow time for it.
+    const response = await axios.post(`${CORE_URL}/intent-review`, body, { timeout: 120000 });
+    res.json(response.data);
+  } catch (err: any) {
+    if (err instanceof z.ZodError) {
+      res.status(400).json({ error: 'Validation failed', details: err.errors });
+    } else {
+      const status = err.response?.status || 500;
+      const message = err.response?.data?.detail || err.message;
+      res.status(status).json({ error: message });
+    }
+  }
+});
+
+app.get('/api/intent-reviews', async (req: Request, res: Response) => {
+  try {
+    const limit = req.query.limit ? Number(req.query.limit) : 20;
+    const response = await axios.get(`${CORE_URL}/intent-reviews`, { params: { limit }, timeout: 5000 });
+    res.json(response.data);
+  } catch (err: any) {
+    const status = err.response?.status || 500;
+    res.status(status).json({ error: err.response?.data?.detail || err.message });
+  }
+});
+
+app.post('/api/intent-review/:id/resolve', async (req: Request, res: Response) => {
+  try {
+    const body = IntentResolveSchema.parse(req.body);
+    const response = await axios.post(
+      `${CORE_URL}/intent-review/${encodeURIComponent(req.params.id)}/resolve`, body, { timeout: 10000 }
+    );
     res.json(response.data);
   } catch (err: any) {
     if (err instanceof z.ZodError) {

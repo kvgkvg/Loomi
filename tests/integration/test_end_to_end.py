@@ -6,6 +6,7 @@ from adapters.git_adapter import capture_commit
 from capture_pipeline.process import process_raw_event
 import capture_pipeline.process as process_module
 from db.client import get_pg_connection, get_vector_collection
+from rationale.review import ensure_reviewer, review_statement
 
 
 def _git(path, *args):
@@ -40,7 +41,11 @@ def test_commit_to_vector_flow(tmp_path, isolated_runtime, monkeypatch):
     event = capture_commit(sha)
     result = process_raw_event(event["raw_event_id"])
 
-    assert result["embedded"] is True
+    assert result["embedded"] is False
+    assert result["review_status"] == "pending"
+    reviewer = ensure_reviewer("Reviewer")
+    for statement_id in result["statement_ids"]:
+        review_statement(statement_id, "approve", reviewer)
     # Vector is indexed by asset_id (Chroma-managed embedding of the document).
     assert get_vector_collection().get(ids=[result["asset_id"]])["ids"] == [
         result["asset_id"]

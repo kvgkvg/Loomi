@@ -91,9 +91,89 @@ CREATE TABLE IF NOT EXISTS asset_relations (
   CHECK (source_asset_id <> target_asset_id)
 );
 
+CREATE TABLE IF NOT EXISTS conversations (
+  id TEXT PRIMARY KEY,
+  source_tool TEXT NOT NULL CHECK (source_tool IN ('chatgpt', 'claude')),
+  external_conversation_id TEXT NOT NULL,
+  title TEXT,
+  owner_id TEXT REFERENCES users(id),
+  started_at TIMESTAMP,
+  updated_at TIMESTAMP,
+  UNIQUE(source_tool, external_conversation_id)
+);
+
+CREATE TABLE IF NOT EXISTS conversation_turns (
+  id TEXT PRIMARY KEY,
+  conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  external_turn_id TEXT,
+  parent_turn_id TEXT REFERENCES conversation_turns(id),
+  sequence_number INTEGER NOT NULL,
+  speaker_role TEXT NOT NULL CHECK (speaker_role IN ('user', 'assistant', 'system', 'tool')),
+  content TEXT NOT NULL,
+  model_name TEXT,
+  created_at TIMESTAMP,
+  content_hash TEXT NOT NULL,
+  UNIQUE(conversation_id, sequence_number)
+);
+
+CREATE TABLE IF NOT EXISTS turn_feedback (
+  id TEXT PRIMARY KEY,
+  turn_id TEXT NOT NULL REFERENCES conversation_turns(id) ON DELETE CASCADE,
+  feedback_type TEXT NOT NULL CHECK (feedback_type IN ('edit', 'regenerate', 'accept', 'rating')),
+  value_json TEXT,
+  created_at TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS rationale_statements (
+  id TEXT PRIMARY KEY,
+  version_id TEXT REFERENCES asset_versions(id) ON DELETE CASCADE,
+  statement_type TEXT NOT NULL CHECK (statement_type IN ('problem', 'intent', 'constraint', 'failed_attempt', 'outcome')),
+  statement TEXT NOT NULL,
+  original_statement TEXT NOT NULL,
+  evidence_kind TEXT NOT NULL CHECK (evidence_kind IN ('observed', 'inferred')),
+  confidence NUMERIC NOT NULL CHECK (confidence BETWEEN 0 AND 1),
+  alternative_explanation TEXT,
+  review_status TEXT NOT NULL DEFAULT 'pending' CHECK (review_status IN ('pending', 'approved', 'edited', 'rejected')),
+  reviewer_id TEXT REFERENCES users(id),
+  reviewed_at TIMESTAMP,
+  review_note TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS rationale_statement_turns (
+  statement_id TEXT NOT NULL REFERENCES rationale_statements(id) ON DELETE CASCADE,
+  turn_id TEXT NOT NULL REFERENCES conversation_turns(id) ON DELETE CASCADE,
+  PRIMARY KEY (statement_id, turn_id)
+);
+
+CREATE TABLE IF NOT EXISTS rationale_statement_versions (
+  statement_id TEXT NOT NULL REFERENCES rationale_statements(id) ON DELETE CASCADE,
+  version_id TEXT NOT NULL REFERENCES asset_versions(id) ON DELETE CASCADE,
+  PRIMARY KEY (statement_id, version_id)
+);
+
+CREATE TABLE IF NOT EXISTS rationale_statement_commits (
+  statement_id TEXT NOT NULL REFERENCES rationale_statements(id) ON DELETE CASCADE,
+  raw_event_id TEXT NOT NULL REFERENCES raw_events(id) ON DELETE CASCADE,
+  PRIMARY KEY (statement_id, raw_event_id)
+);
+
 CREATE TABLE IF NOT EXISTS git_poll_state (
   repo_path TEXT PRIMARY KEY,
   last_polled_sha TEXT NOT NULL,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS intent_reviews (
+  id TEXT PRIMARY KEY,
+  prompt TEXT NOT NULL,
+  source_env TEXT NOT NULL,
+  user_name TEXT,
+  intent TEXT,
+  chat_history TEXT,                 -- JSON array of recent chat messages
+  checks TEXT NOT NULL,               -- JSON array of {name, status, detail}
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('passed', 'pending', 'approved', 'rejected')),
+  reviewer TEXT,
+  resolved_at TIMESTAMP,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);

@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/integrations/claude-code/loomi-intent-hook.sh\"",
+            "async": true,
+            "timeout": 15,
+            "statusMessage": "Loomi intent CI"
+          }
+        ]
+      }
+    ]
+  }
+}

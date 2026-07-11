@@ -73,6 +73,65 @@ def _deserialize_rationale(row) -> dict:
     }
 
 
+def _statement_id(version_id: str, index: int, statement: str) -> str:
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"loomi-statement:{version_id}:{index}:{statement}"))
+
+
+def _rationale_to_statements(rationale: dict) -> list[dict]:
+    rows = [{
+        "statement_type": "problem",
+        "statement": rationale["problem"],
+    }]
+    rows.extend({"statement_type": "failed_attempt", "statement": item} for item in rationale["failed_attempts"])
+    rows.extend({"statement_type": "constraint", "statement": item} for item in rationale["constraints"])
+    return [
+        {
+            **row,
+            "original_statement": row["statement"],
+            "evidence_kind": "inferred",
+            "confidence": 0.7,
+            "alternative_explanation": None,
+        }
+        for row in rows
+        if row["statement"]
+    ]
+
+
+def _pending_result(connection, version_id: str) -> dict:
+    row = connection.execute(
+        "SELECT asset_id FROM asset_versions WHERE id = ?", (version_id,)
+    ).fetchone()
+    statements = connection.execute(
+        """
+        SELECT id, statement_type, statement
+        FROM rationale_statements
+        WHERE version_id = ?
+        ORDER BY CASE statement_type
+          WHEN 'problem' THEN 0
+          WHEN 'failed_attempt' THEN 1
+          WHEN 'constraint' THEN 2
+          ELSE 3
+        END, id
+        """,
+        (version_id,),
+    ).fetchall()
+    rationale = {
+        "problem": next((s["statement"] for s in statements if s["statement_type"] == "problem"), ""),
+        "failed_attempts": [s["statement"] for s in statements if s["statement_type"] == "failed_attempt"],
+        "constraints": [s["statement"] for s in statements if s["statement_type"] == "constraint"],
+        "confidence": "auto",
+    }
+    return {
+        "asset_id": row["asset_id"],
+        "version_id": version_id,
+        "rationale": rationale,
+        "embedded": False,
+        "draft_embedded": True,
+        "review_status": "pending",
+        "statement_ids": [s["id"] for s in statements],
+    }
+
+
 def _persisted_result(connection, version_id: str) -> dict:
     row = connection.execute(
         """
@@ -105,6 +164,8 @@ def process_raw_event(raw_event_id: str) -> dict:
             return _failure("Raw event not found")
         if event["processed"] and event["processed_asset_version_id"]:
             return _persisted_result(connection, event["processed_asset_version_id"])
+        if event["processed_asset_version_id"]:
+            return _pending_result(connection, event["processed_asset_version_id"])
 
         connection.execute("BEGIN")
         raw_signal = json.loads(event["raw_signal"] or "{}")
@@ -162,49 +223,56 @@ def process_raw_event(raw_event_id: str) -> dict:
         )
 
         rationale = extract_rationale(event["content"], event["raw_signal"] or "")
-        connection.execute(
-            """
-            INSERT INTO rationale
-                (id, version_id, problem, failed_attempts, constraints, confidence)
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (
-                str(uuid.uuid5(uuid.NAMESPACE_URL, f"loomi-rationale:{version_id}")),
-                version_id,
-                rationale["problem"],
-                json.dumps(rationale["failed_attempts"], ensure_ascii=False),
-                json.dumps(rationale["constraints"], ensure_ascii=False),
-                rationale["confidence"],
-            ),
-        )
+        statement_ids = []
+        for index, statement in enumerate(_rationale_to_statements(rationale)):
+            statement_id = _statement_id(version_id, index, statement["statement"])
+            statement_ids.append(statement_id)
+            connection.execute(
+                """
+                INSERT INTO rationale_statements
+                  (id, version_id, statement_type, statement, original_statement, evidence_kind,
+                   confidence, alternative_explanation, review_status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+                """,
+                (
+                    statement_id,
+                    version_id,
+                    statement["statement_type"],
+                    statement["statement"],
+                    statement["original_statement"],
+                    statement["evidence_kind"],
+                    statement["confidence"],
+                    statement["alternative_explanation"],
+                ),
+            )
+            connection.execute(
+                "INSERT INTO rationale_statement_versions (statement_id, version_id) VALUES (?, ?)",
+                (statement_id, version_id),
+            )
+            connection.execute(
+                "INSERT INTO rationale_statement_commits (statement_id, raw_event_id) VALUES (?, ?)",
+                (statement_id, raw_event_id),
+            )
 
         document = f"{event['content']}\n\nProblem: {rationale['problem']}"
-        # Vector id = asset_id (one vector per asset, latest version) so the
-        # recommend engine can join hits[ids] -> assets.id directly. Chroma
-        # embeds the document with its default function (team's shared model).
+        # Precompute a draft vector under a non-asset id. Recommend joins by
+        # asset_id, so pending rationale stays out of normal search results.
         get_vector_collection().upsert(
-            ids=[asset_id],
+            ids=[f"draft:{version_id}"],
             documents=[document],
             metadatas=[
                 {
                     "asset_id": asset_id,
                     "version_id": version_id,
                     "source_tool": event["source_tool"],
+                    "review_status": "pending",
                 }
             ],
         )
         connection.execute(
             """
-            UPDATE assets
-            SET current_version_id = ?, updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-            """,
-            (version_id, asset_id),
-        )
-        connection.execute(
-            """
             UPDATE raw_events
-            SET processed = 1, processed_asset_version_id = ?
+            SET processed = 0, processed_asset_version_id = ?
             WHERE id = ?
             """,
             (version_id, raw_event_id),
@@ -214,9 +282,14 @@ def process_raw_event(raw_event_id: str) -> dict:
             "asset_id": asset_id,
             "version_id": version_id,
             "rationale": rationale,
-            "embedded": True,
+            "embedded": False,
+            "draft_embedded": True,
+            "review_status": "pending",
+            "statement_ids": statement_ids,
         }
-    except Exception:
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
         connection.rollback()
         try:
             connection.execute(

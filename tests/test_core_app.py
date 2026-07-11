@@ -7,12 +7,46 @@ import asyncio
 import json
 from pathlib import Path
 from unittest.mock import patch
-from fastapi.testclient import TestClient
 
 from db.client import get_pg_connection, get_vector_collection
-from core.app import app, poll_git_repo, event_broadcaster
+from core.app import poll_git_repo, event_broadcaster
+import core.app as core_app_module
 import capture_pipeline.process as process_module
 import onboarding.assistant as assistant_module
+import recommend.engine as recommend_module
+
+
+class FakeCollection:
+    def __init__(self):
+        self.records = {}
+
+    def upsert(self, *, ids, documents, metadatas):
+        for index, item_id in enumerate(ids):
+            self.records[item_id] = {
+                "document": documents[index],
+                "metadata": metadatas[index],
+            }
+
+    def count(self):
+        return len(self.records)
+
+    def query(self, *, query_texts, n_results):
+        ids = list(self.records)[:n_results]
+        return {"ids": [ids], "distances": [[0.1 for _ in ids]]}
+
+
+@pytest.fixture(autouse=True)
+def fake_vector_collection(monkeypatch):
+    collection = FakeCollection()
+
+    async def run_inline(fn, *args, **kwargs):
+        return fn(*args, **kwargs)
+
+    monkeypatch.setattr(core_app_module, "get_vector_collection", lambda: collection)
+    monkeypatch.setattr(recommend_module, "get_vector_collection", lambda: collection)
+    monkeypatch.setattr(core_app_module.anyio.to_thread, "run_sync", run_inline)
+    monkeypatch.setitem(globals(), "get_vector_collection", lambda: collection)
+    return collection
 
 def _git(path, *args):
     return subprocess.run(
@@ -36,13 +70,10 @@ def temp_git_repo(tmp_path):
     return repository
 
 def test_health_endpoint(isolated_runtime):
-    with TestClient(app) as client:
-        response = client.get("/health")
-        assert response.status_code == 200
-        data = response.json()
-        assert data["status"] == "ok"
-        assert data["database"] == "ok"
-        assert data["vector_store"] == "ok"
+    data = core_app_module.health_check()
+    assert data["status"] == "ok"
+    assert data["database"] == "ok"
+    assert data["vector_store"] == "ok"
 
 def test_recommend_endpoint(isolated_runtime):
     # Populate mock assets/vectors
@@ -62,23 +93,21 @@ def test_recommend_endpoint(isolated_runtime):
     conn.commit()
     conn.close()
 
-    with TestClient(app) as client:
-        response = client.post("/recommend", json={"task_description": "find code", "top_k": 2})
-        assert response.status_code == 200
-        data = response.json()
-        assert len(data) > 0
-        assert data[0]["asset_id"] == "asset1"
-        assert data[0]["title"] == "Title1"
+    data = asyncio.run(core_app_module.recommend_endpoint(
+        core_app_module.RecommendRequest(task_description="find code", top_k=2)
+    ))
+    assert len(data) > 0
+    assert data[0]["asset_id"] == "asset1"
+    assert data[0]["title"] == "Title1"
 
 def test_explain_endpoint(isolated_runtime):
     # Mock explain_asset from assistant_module
     with patch("core.app.explain_asset", return_value={"explanation": "This is mock explanation", "cited_versions": [1], "cited_constraints": []}):
-        with TestClient(app) as client:
-            response = client.post("/explain", json={"asset_id": "asset1", "question": "Why?"})
-            assert response.status_code == 200
-            data = response.json()
-            assert data["explanation"] == "This is mock explanation"
-            assert data["cited_versions"] == [1]
+        data = asyncio.run(core_app_module.explain_endpoint(
+            core_app_module.ExplainRequest(asset_id="asset1", question="Why?")
+        ))
+        assert data["explanation"] == "This is mock explanation"
+        assert data["cited_versions"] == [1]
 
 def test_git_poller_and_capture_flow(temp_git_repo, isolated_runtime, monkeypatch):
     # Change working directory to temp git repo so capture_commit works
@@ -95,6 +124,18 @@ def test_git_poller_and_capture_flow(temp_git_repo, isolated_runtime, monkeypatc
             "confidence": "auto",
         },
     )
+    monkeypatch.setattr(
+        process_module,
+        "get_vector_collection",
+        lambda: type("Collection", (), {"upsert": lambda self, **kwargs: None})(),
+    )
+    emitted_stages = []
+    monkeypatch.setattr(
+        core_app_module,
+        "_emit_stage",
+        lambda header, stage, status, log=None, result=None: emitted_stages.append((stage, status)),
+    )
+    monkeypatch.setattr(core_app_module.time, "sleep", lambda _: None)
     
     # 1. Get initial HEAD SHA
     head_sha = _git(temp_git_repo, "rev-parse", "HEAD")
@@ -117,11 +158,27 @@ def test_git_poller_and_capture_flow(temp_git_repo, isolated_runtime, monkeypatc
     _git(temp_git_repo, "commit", "-m", "second commit")
     new_sha = _git(temp_git_repo, "rev-parse", "HEAD")
     
-    # 4. Call poll_git_repo again - it should detect, capture and process the new commit
+    # 4. Call poll_git_repo again - it should detect and prepare the new commit,
+    # but not broadcast memory_ready until human review finalizes it.
     events = poll_git_repo(temp_git_repo)
-    assert len(events) == 1
-    assert events[0]["title"] == "second commit"
-    assert events[0]["problem"] == "Create mock logic"
+    assert len(events) == 0
+    for stage in ("persist", "embed"):
+        assert (stage, "running") in emitted_stages
+        assert emitted_stages.index((stage, "running")) < emitted_stages.index((stage, "success"))
+    assert (("finalize", "skipped")) in emitted_stages
+    pending = conn.execute(
+        """
+        SELECT re.processed, count(rs.id) AS statement_count
+        FROM raw_events re
+        JOIN asset_versions av ON av.id = re.processed_asset_version_id
+        JOIN rationale_statements rs ON rs.version_id = av.id
+        WHERE re.title = ?
+        GROUP BY re.processed
+        """,
+        ("second commit",),
+    ).fetchone()
+    assert pending["processed"] == 0
+    assert pending["statement_count"] == 2
     
     # Verify DB has last_polled_sha advanced to new_sha
     row = conn.execute("SELECT last_polled_sha FROM git_poll_state WHERE repo_path = ?", (str(temp_git_repo),)).fetchone()
@@ -139,21 +196,20 @@ def test_git_poller_and_capture_flow(temp_git_repo, isolated_runtime, monkeypatc
     third_sha = _git(temp_git_repo, "rev-parse", "HEAD")
     
     monkeypatch.setenv("LOOMI_REPO_PATH", str(temp_git_repo))
-    with TestClient(app) as client:
-        response = client.post("/capture", json={"commit_sha": third_sha})
-        assert response.status_code == 200
-        data = response.json()
-        assert data["status"] == "success"
-        assert data["raw_event_id"] is not None
-        
-        # 7. Check if poller skips it next time
-        # Calling poll_git_repo should advance the last_polled_sha but return 0 new events because it is already captured
-        events = poll_git_repo(temp_git_repo)
-        assert len(events) == 0
-        
-        # Verify last_polled_sha is advanced to third_sha
-        row = conn.execute("SELECT last_polled_sha FROM git_poll_state WHERE repo_path = ?", (str(temp_git_repo),)).fetchone()
-        assert row["last_polled_sha"] == third_sha
+    data = asyncio.run(core_app_module.capture_endpoint(
+        core_app_module.CaptureRequest(commit_sha=third_sha)
+    ))
+    assert data["status"] == "success"
+    assert data["raw_event_id"] is not None
+
+    # 7. Check if poller skips it next time
+    # Calling poll_git_repo should advance the last_polled_sha but return 0 new events because it is already captured
+    events = poll_git_repo(temp_git_repo)
+    assert len(events) == 0
+
+    # Verify last_polled_sha is advanced to third_sha
+    row = conn.execute("SELECT last_polled_sha FROM git_poll_state WHERE repo_path = ?", (str(temp_git_repo),)).fetchone()
+    assert row["last_polled_sha"] == third_sha
     conn.close()
 
 def test_adopt_endpoint(isolated_runtime):
@@ -163,30 +219,22 @@ def test_adopt_endpoint(isolated_runtime):
     conn.commit()
     conn.close()
 
-    with TestClient(app) as client:
-        response = client.post(
-            "/adopt",
-            json={"asset_id": "asset1", "user_id": "u1", "task_description": "Use this prompt"}
-        )
-        assert response.status_code == 200
-        data = response.json()
-        assert data["status"] == "success"
-        assert data["usage_id"] is not None
+    data = asyncio.run(core_app_module.adopt_endpoint(
+        core_app_module.AdoptRequest(asset_id="asset1", user_id="u1", task_description="Use this prompt")
+    ))
+    assert data["status"] == "success"
+    assert data["usage_id"] is not None
 
-        # Verify usage count updated
-        conn = get_pg_connection()
-        row = conn.execute("SELECT usage_count FROM assets WHERE id = 'asset1'").fetchone()
-        assert row["usage_count"] == 1
-        conn.close()
+    # Verify usage count updated
+    conn = get_pg_connection()
+    row = conn.execute("SELECT usage_count FROM assets WHERE id = 'asset1'").fetchone()
+    assert row["usage_count"] == 1
+    conn.close()
 
-def test_events_stream_connection(isolated_runtime):
-    with TestClient(app) as client:
-        with client.stream("GET", "/events") as response:
-            assert response.status_code == 200
-            assert response.headers["content-type"] == "text/event-stream"
-            iterator = response.iter_lines()
-            conn_line = next(iterator)
-            assert "connected" in conn_line
+@pytest.mark.anyio
+async def test_events_stream_connection(isolated_runtime):
+    response = await core_app_module.events_endpoint()
+    assert response.media_type == "text/event-stream"
 
 @pytest.mark.anyio
 async def test_event_broadcaster():

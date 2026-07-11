@@ -16,3 +16,11 @@ def compute(cosine: float, confidence: str, usage_count: int) -> float:
         math.log1p(max(usage_count, 0)) / math.log1p(_USAGE_SATURATION), 1.0
     )
     return W_COS * cosine + W_CONF * conf_weight + W_USE * usage_boost
+
+
+def role_adjusted(base_score: float, text: str, lens: dict) -> float:
+    """Blend a bounded role keyword signal without overpowering semantics."""
+    weight = min(max(float(lens.get("ranking_weights", {}).get("role", 0.0)), 0.0), 0.2)
+    lowered = text.casefold()
+    match = 1.0 if any(goal.casefold() in lowered for goal in lens.get("goals", []) if isinstance(goal, str)) else 0.0
+    return min(max((1.0 - weight) * base_score + weight * match, 0.0), 1.0)

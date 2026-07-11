@@ -2,6 +2,21 @@
 
 MVP capture layer for turning Git changes to prompts, workflows, and agent configuration into versioned organizational memory. One call captures a commit; another extracts rationale with Featherless GLM-5.2, embeds it, and stores it in SQLite plus Chroma.
 
+## Quick Start (web demo)
+
+The full web stack (Next.js UI + Express gateway + FastAPI core + Postgres + Chroma) runs with:
+
+```bash
+cp .env.example .env   # set FEATHERLESS_API_KEY
+docker compose up -d --build
+docker compose exec core python -m db.seed
+docker compose exec core python scripts/seed_demo_chats.py
+```
+
+UI at <http://localhost:3000>. Full guide — seeding, demo walkthrough, tests, troubleshooting: **[docs/RUNNING.md](docs/RUNNING.md)**.
+
+The rest of this README covers the library-level Python workflow (no Docker).
+
 ## Setup
 
 Create isolated environment:
@@ -114,3 +129,49 @@ conda run -n loomi-an pytest tests/integration/test_featherless_live.py -v
 - Storage access: only through `db/client.py`
 
 See [component design](docs/components/git-capture-pipeline.md) for data flow and extension rules.
+
+## Prompt History, Rationale Review, and Role-Aware Views
+
+Import a ChatGPT or Claude JSON export, then generate pending rationale:
+
+```python
+import json
+from adapters.chat_adapter import capture_chat_export
+from capture_pipeline.chat_process import process_chat_event
+
+payload = json.load(open("conversation.json"))
+event = capture_chat_export(payload, "claude")  # or "chatgpt"
+pending = process_chat_event(event["raw_event_id"])
+```
+
+LLM statements are not trusted until user review:
+
+```python
+from rationale.review import list_pending_statements, review_statement
+
+item = list_pending_statements()[0]
+review_statement(item["id"], "approve", reviewer_id="<existing-user-id>")
+# Other actions: "edit" with edited_statement=..., or "reject".
+```
+
+Approval refreshes compact rationale and the asset's Chroma document. Pending and rejected statements never affect search or normal onboarding.
+
+Pass a role for personalized ranking and explanation:
+
+```python
+from recommend.engine import recommend
+from onboarding.assistant import explain_asset
+
+results = recommend("produce reliable structured output", role="Tech Lead")
+explanation = explain_asset(results[0]["asset_id"], role="Intern")
+```
+
+Run the review/discovery UI after installing requirements:
+
+```bash
+conda run --no-capture-output -n loomi-an streamlit run delivery/app.py
+```
+
+The Streamlit entrypoint loads the project `.env` automatically without overriding variables already exported by the shell.
+
+Built-in role lenses: Intern, Developer, Tech Lead, Manager. Other role names use validated Featherless output with a Developer-like fallback.
