@@ -43,6 +43,18 @@ def test_rationale_statement_review_status_is_constrained(isolated_runtime):
         raise AssertionError("invalid review status was accepted")
 
 
+def test_connection_creates_configured_parent_directory(tmp_path, monkeypatch):
+    from db.client import get_pg_connection
+
+    db_path = tmp_path / "nested" / "runtime" / "loomi.sqlite3"
+    monkeypatch.setenv("LOOMI_DB_PATH", str(db_path))
+
+    connection = get_pg_connection()
+    connection.close()
+
+    assert db_path.exists()
+
+
 def test_vector_collection_is_persistent(isolated_runtime):
     from db.client import get_vector_collection, COLLECTION_NAME
 

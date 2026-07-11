@@ -154,7 +154,9 @@ explanation = explain_asset(results[0]["asset_id"], role="Intern")
 Run the review/discovery UI after installing requirements:
 
 ```bash
-streamlit run delivery/app.py
+conda run --no-capture-output -n loomi-an streamlit run delivery/app.py
 ```
+
+The Streamlit entrypoint loads the project `.env` automatically without overriding variables already exported by the shell.
 
 Built-in role lenses: Intern, Developer, Tech Lead, Manager. Other role names use validated Featherless output with a Developer-like fallback.

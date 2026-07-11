@@ -40,7 +40,9 @@ def _chroma_path() -> str:
 
 def get_pg_connection() -> sqlite3.Connection:
     """Return a ready-to-use DB connection. Schema is auto-applied (idempotent)."""
-    conn = sqlite3.connect(_db_path())
+    db_path = Path(_db_path()).expanduser()
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row  # rows accessible by column name
     conn.execute("PRAGMA foreign_keys = ON")
     conn.executescript(_SCHEMA_FILE.read_text())

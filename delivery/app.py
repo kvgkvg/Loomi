@@ -3,21 +3,30 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
+
+from dotenv import load_dotenv
 
 from adapters.chat_adapter import capture_chat_export
 from capture_pipeline.chat_process import process_chat_event
 from onboarding.assistant import explain_asset
-from rationale.review import list_pending_statements, review_statement
+from rationale.review import ensure_reviewer, list_pending_statements, review_statement
 from recommend.engine import recommend
 
 
+def _load_runtime_env(path: str | Path | None = None) -> None:
+    env_path = Path(path) if path is not None else Path(__file__).resolve().parents[1] / ".env"
+    load_dotenv(env_path, override=False)
+
+
 def main() -> None:
+    _load_runtime_env()
     import streamlit as st
 
     st.set_page_config(page_title="Loomi", page_icon="🧠", layout="wide")
     st.title("Loomi · Organizational AI Memory")
     role = st.sidebar.selectbox("Role", ["Intern", "Developer", "Tech Lead", "Manager"])
-    reviewer_id = st.sidebar.text_input("Reviewer user ID")
+    reviewer_name = st.sidebar.text_input("Reviewer name")
 
     discover, review, import_tab = st.tabs(["Discover", "Review rationale", "Import history"])
     with discover:
@@ -39,13 +48,13 @@ def main() -> None:
                 st.code(f"{turn['speaker_role']}: {turn['content']}")
             approve, edit, reject = st.columns(3)
             if approve.button("Approve", key=f"a-{item['id']}"):
-                review_statement(item["id"], "approve", reviewer_id)
+                review_statement(item["id"], "approve", ensure_reviewer(reviewer_name))
                 st.rerun()
             if edit.button("Edit & approve", key=f"x-{item['id']}"):
-                review_statement(item["id"], "edit", reviewer_id, edited_statement=edited)
+                review_statement(item["id"], "edit", ensure_reviewer(reviewer_name), edited_statement=edited)
                 st.rerun()
             if reject.button("Reject", key=f"r-{item['id']}"):
-                review_statement(item["id"], "reject", reviewer_id)
+                review_statement(item["id"], "reject", ensure_reviewer(reviewer_name))
                 st.rerun()
 
     with import_tab:

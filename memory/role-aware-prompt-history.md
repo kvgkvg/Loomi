@@ -91,3 +91,23 @@
 
 - Focused relational/mocked suite: 61 passed.
 - Full real-Chroma verification remains the final step; earlier baseline runs blocked during embedding initialization.
+
+## 2026-07-11 — Streamlit runtime fix
+
+### Root causes
+
+- `delivery/app.py` did not load project `.env`, so a Conda-launched Streamlit process had no Featherless key or Loomi storage paths. Rationale generation failed behind the safe error boundary.
+- Once `.env` loaded, configured SQLite path pointed into a missing parent directory. `sqlite3.connect()` cannot create directories.
+- Fresh database contained no users while review UI required an existing reviewer UUID, making review actions unusable.
+
+### Fixes
+
+- Load project `.env` at Streamlit startup with `override=False`.
+- Create configured SQLite parent directory in `db/client.py` before connecting.
+- Replace reviewer UUID input with reviewer name and idempotent attributed user creation.
+
+### Verification
+
+- Focused runtime tests: 13 passed.
+- Full offline suite: 70 passed, 1 deselected.
+- `conda run --no-capture-output -n loomi-an streamlit run delivery/app.py --server.headless true` started successfully on port 8511.

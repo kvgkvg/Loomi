@@ -12,6 +12,23 @@ class ReviewError(ValueError):
     pass
 
 
+def ensure_reviewer(name: str) -> str:
+    if not isinstance(name, str) or not name.strip():
+        raise ReviewError("reviewer name is required")
+    normalized = " ".join(name.split())
+    reviewer_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"loomi-reviewer:{normalized.casefold()}"))
+    connection = get_pg_connection()
+    try:
+        connection.execute(
+            "INSERT INTO users (id, name) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET name=excluded.name",
+            (reviewer_id, normalized),
+        )
+        connection.commit()
+        return reviewer_id
+    finally:
+        connection.close()
+
+
 def list_pending_statements(asset_id: str | None = None) -> list[dict]:
     connection = get_pg_connection()
     try:

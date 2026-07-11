@@ -3,7 +3,7 @@ import pytest
 from adapters.chat_adapter import capture_chat_export
 from capture_pipeline.chat_process import process_chat_event
 from db.client import get_pg_connection
-from rationale.review import ReviewError, list_pending_statements, review_statement
+from rationale.review import ReviewError, ensure_reviewer, list_pending_statements, review_statement
 import capture_pipeline.chat_process as chat_module
 import rationale.review as review_module
 
@@ -80,3 +80,16 @@ def test_pending_queue_contains_evidence_and_excludes_reviewed(pending, monkeypa
 
     review_statement(pending["statement_ids"][0], "reject", "reviewer")
     assert list_pending_statements() == []
+
+
+def test_ensure_reviewer_creates_idempotent_attribution_user(isolated_runtime):
+    first = ensure_reviewer("Alice")
+    second = ensure_reviewer(" Alice ")
+    assert first == second
+    conn = get_pg_connection()
+    assert conn.execute("SELECT name FROM users WHERE id = ?", (first,)).fetchone()[0] == "Alice"
+
+
+def test_ensure_reviewer_rejects_empty_name(isolated_runtime):
+    with pytest.raises(ReviewError):
+        ensure_reviewer("  ")
