@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from 'react';
+import TopNav from '../components/TopNav';
 
 // Live pipeline visualization: history from GET /api/runs, live runs from
 // the pipeline_stage SSE events emitted by the Git poller.
@@ -221,7 +222,21 @@ export default function PipelinePage() {
   }
 
   return (
-    <div style={{ height: '100vh', width: '100%', display: 'flex', background: '#0d1117', color: '#e6edf3', fontFamily: "'IBM Plex Sans', system-ui, sans-serif", overflow: 'hidden' }}>
+    <div style={{ height: '100vh', width: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <TopNav>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--accent-color)', display: 'inline-block', animation: 'blinkDot 1.6s ease-in-out infinite' }} />
+          <span className="mono-text" style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+            Polling {'kvgkvg/test_loomi_repo'}
+          </span>
+        </div>
+        {linkedAssetId && (
+          <a href={`/?asset=${encodeURIComponent(linkedAssetId)}`} className="btn btn-primary" style={{ minHeight: '36px', padding: '6px 14px', fontSize: '13px' }} title="Open this asset on the Narrative Canvas">
+            Open in Canvas
+          </a>
+        )}
+      </TopNav>
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', background: '#181A19', color: '#F4F6F2', fontFamily: 'var(--font-sans)', overflow: 'hidden' }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
         @keyframes pulseRing {
@@ -283,45 +298,10 @@ export default function PipelinePage() {
       {/* MAIN */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, overflow: 'hidden' }}>
 
-        {/* top bar */}
-        <div style={{ flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 28px', borderBottom: '1px solid #21262d', gap: 16 }}>
-          <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 16, fontWeight: 600, color: '#e6edf3' }}>Git Capture Pipeline</div>
-            <div style={{ fontSize: 12, color: '#6e7681', marginTop: 2 }}>capture_commit → process_raw_event → extract_rationale → embed → finalize</div>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-            {linkedAssetId && (
-              <a
-                href={`/?asset=${encodeURIComponent(linkedAssetId)}`}
-                style={{
-                  fontSize: 12.5,
-                  fontWeight: 600,
-                  color: '#0d1117',
-                  background: '#3fb950',
-                  border: '1px solid #2ea043',
-                  borderRadius: 9999,
-                  padding: '7px 14px',
-                  textDecoration: 'none',
-                }}
-                title="Open this asset on the Narrative Canvas"
-              >
-                Open in Canvas
-              </a>
-            )}
-            <a
-              href="/"
-              style={{
-                fontSize: 12.5,
-                fontWeight: 500,
-                color: '#c9d1d9',
-                border: '1px solid #30363d',
-                borderRadius: 9999,
-                padding: '7px 14px',
-                textDecoration: 'none',
-              }}
-            >
-              Canvas
-            </a>
+        <div style={{ flex: 'none', padding: '14px 28px 10px', borderBottom: '1px solid #373D38' }}>
+          <div style={{ fontSize: 15, fontWeight: 600, color: '#F4F6F2' }}>Git Capture Pipeline</div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, color: '#8A938C', marginTop: 2 }}>
+            capture_commit → process_raw_event → extract_rationale → embed → finalize
           </div>
         </div>
 
@@ -469,6 +449,7 @@ export default function PipelinePage() {
           </>
         )}
       </div>
+    </div>
     </div>
   );
 }
