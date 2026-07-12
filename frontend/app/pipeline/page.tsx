@@ -118,9 +118,27 @@ export default function PipelinePage() {
       return loaded;
     });
 
-  // Load run history
+  // Load run history; honor ?asset= / ?run= deep links from Narrative Canvas
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const wantAsset = params.get('asset');
+    const wantRun = params.get('run');
+
     loadRuns()
+      .then((loaded) => {
+        if (!loaded?.length) return;
+        if (wantRun) {
+          const match = loaded.find((r) => r.run_id === wantRun || r.sha === wantRun || r.full_sha === wantRun);
+          if (match) setActiveId(match.run_id);
+          return;
+        }
+        if (wantAsset) {
+          const match = loaded.find((r) =>
+            r.stages.some((s) => s.result && String((s.result as { asset_id?: string }).asset_id || '') === wantAsset)
+          );
+          if (match) setActiveId(match.run_id);
+        }
+      })
       .catch((err) => {
         console.error('Failed to load runs:', err);
         setLoadError('Could not load run history from the API.');
@@ -171,6 +189,14 @@ export default function PipelinePage() {
   const mono = "'IBM Plex Mono', var(--font-mono), monospace";
   const pendingReview = active?.stages.find((s) => s.key === 'finalize' && s.result?.review_status === 'pending');
   const pendingVersionId = typeof pendingReview?.result?.version_id === 'string' ? pendingReview.result.version_id : null;
+  const linkedAssetId = (() => {
+    if (!active) return null;
+    for (const s of active.stages) {
+      const id = s.result?.asset_id;
+      if (typeof id === 'string' && id.length > 0) return id;
+    }
+    return null;
+  })();
 
   async function approveRationale() {
     if (!pendingVersionId || reviewBusy) return;
@@ -258,12 +284,45 @@ export default function PipelinePage() {
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, overflow: 'hidden' }}>
 
         {/* top bar */}
-        <div style={{ flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 28px', borderBottom: '1px solid #21262d' }}>
-          <div>
+        <div style={{ flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 28px', borderBottom: '1px solid #21262d', gap: 16 }}>
+          <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 16, fontWeight: 600, color: '#e6edf3' }}>Git Capture Pipeline</div>
             <div style={{ fontSize: 12, color: '#6e7681', marginTop: 2 }}>capture_commit → process_raw_event → extract_rationale → embed → finalize</div>
           </div>
-          <a href="/" style={{ fontSize: 12.5, color: '#58a6ff', textDecoration: 'none' }}>← Narrative Canvas</a>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+            {linkedAssetId && (
+              <a
+                href={`/?asset=${encodeURIComponent(linkedAssetId)}`}
+                style={{
+                  fontSize: 12.5,
+                  fontWeight: 600,
+                  color: '#0d1117',
+                  background: '#3fb950',
+                  border: '1px solid #2ea043',
+                  borderRadius: 9999,
+                  padding: '7px 14px',
+                  textDecoration: 'none',
+                }}
+                title="Open this asset on the Narrative Canvas"
+              >
+                Open in Canvas
+              </a>
+            )}
+            <a
+              href="/"
+              style={{
+                fontSize: 12.5,
+                fontWeight: 500,
+                color: '#c9d1d9',
+                border: '1px solid #30363d',
+                borderRadius: 9999,
+                padding: '7px 14px',
+                textDecoration: 'none',
+              }}
+            >
+              Canvas
+            </a>
+          </div>
         </div>
 
         {!active ? (

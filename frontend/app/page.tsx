@@ -357,6 +357,19 @@ export default function Home() {
     }
   };
 
+  // Deep link from Pipeline: /?asset=<uuid> opens Evidence Stack
+  useEffect(() => {
+    const assetId = new URLSearchParams(window.location.search).get('asset');
+    if (!assetId) return;
+    void (async () => {
+      await handleReview(assetId);
+      const url = new URL(window.location.href);
+      url.searchParams.delete('asset');
+      window.history.replaceState({}, '', url.pathname + url.search);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot deep link on mount
+  }, []);
+
   // Switch the repository the poller tracks (git URL or a container-visible path)
   const handleTrack = async () => {
     const repo = trackInput.trim();
@@ -468,23 +481,27 @@ export default function Home() {
         top: 0,
         zIndex: 100
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <span style={{ fontWeight: 600, fontSize: '18px', color: 'var(--text-primary)' }}>Loomi</span>
-          <span style={{
-            fontSize: '11px',
-            fontFamily: 'var(--font-mono)',
-            padding: '2px 6px',
-            border: '1px solid var(--accent-color)',
-            color: 'var(--accent-color)',
-            borderRadius: '4px'
-          }}>MEM-ORGANIZATION</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontWeight: 600, fontSize: '18px', color: 'var(--text-primary)' }}>Loomi</span>
+            <span style={{
+              fontSize: '11px',
+              fontFamily: 'var(--font-mono)',
+              padding: '2px 6px',
+              border: '1px solid var(--accent-color)',
+              color: 'var(--accent-color)',
+              borderRadius: '4px'
+            }}>MEM-ORGANIZATION</span>
+          </div>
+          {/* Product view switcher — Narrative vs capture pipeline */}
+          <nav className="view-switch" aria-label="Product views">
+            <a href="/" aria-current="page">Canvas</a>
+            <a href="/pipeline">Pipeline</a>
+          </nav>
         </div>
         
         {/* Aggregated Health Check */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <a href="/pipeline" style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-secondary)', textDecoration: 'none' }}>
-            Pipeline
-          </a>
           {/* Role lens switcher — personalization, not access control */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <span className="mono-text" style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Viewing as</span>
@@ -546,9 +563,20 @@ export default function Home() {
             borderRadius: 'var(--panel-radius)',
             backgroundColor: 'var(--panel-bg)'
           }}>
-            <h3 style={{ fontSize: '14px', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', marginBottom: '4px' }}>
-              Captured Git Knowledge Feed
-            </h3>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px', marginBottom: '4px' }}>
+              <h3 style={{ fontSize: '14px', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)' }}>
+                Captured Git Knowledge Feed
+              </h3>
+              <a
+                href="/pipeline"
+                className="btn btn-ghost"
+                style={{ flexShrink: 0, textDecoration: 'none' }}
+                title="Open live capture stages for the tracked repository"
+              >
+                Capture pipeline
+                <span style={{ marginLeft: 6, opacity: 0.7 }} aria-hidden>→</span>
+              </a>
+            </div>
             <div className="mono-text" style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px' }}>
               {repoInfo ? (
                 <>
@@ -591,9 +619,10 @@ export default function Home() {
                     backgroundColor: 'var(--accent-soft)',
                     display: 'flex',
                     justifyContent: 'space-between',
-                    alignItems: 'center'
+                    alignItems: 'center',
+                    gap: '12px'
                   }}>
-                    <div>
+                    <div style={{ minWidth: 0 }}>
                       <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '4px' }}>
                         <span className="mono-text" style={{ fontSize: '11px', color: 'var(--accent-color)', fontWeight: 600 }}>GIT COMMIT</span>
                         <span className="mono-text" style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{event.timestamp}</span>
@@ -601,9 +630,19 @@ export default function Home() {
                       <h4 style={{ fontSize: '16px', fontWeight: 500 }}>{event.title}</h4>
                       <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Author: {event.owner} • {event.problem}</p>
                     </div>
-                    <button className="btn btn-secondary" onClick={() => handleReview(event.asset_id)}>
-                      Review
-                    </button>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+                      <a
+                        href={`/pipeline?asset=${encodeURIComponent(event.asset_id)}`}
+                        className="btn btn-ghost"
+                        style={{ textDecoration: 'none' }}
+                        title="Inspect capture stages for this asset"
+                      >
+                        Pipeline
+                      </a>
+                      <button className="btn btn-secondary" onClick={() => handleReview(event.asset_id)}>
+                        Review
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>

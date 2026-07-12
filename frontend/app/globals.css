@@ -118,6 +118,55 @@ body {
   background-color: rgba(100, 100, 100, 0.05);
 }
 
+/* Compact secondary — pairs with primary Review without competing */
+.btn-ghost {
+  background-color: transparent;
+  border-color: transparent;
+  color: var(--text-secondary);
+  min-height: 40px;
+  padding: 8px 14px;
+  font-size: 13px;
+}
+
+.btn-ghost:hover {
+  color: var(--accent-color);
+  background-color: rgba(61, 107, 79, 0.08);
+}
+
+/* Product-style view switcher (Canvas | Pipeline) */
+.view-switch {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px;
+  gap: 2px;
+  border: 1px solid var(--border-color);
+  border-radius: 9999px;
+  background: transparent;
+}
+
+.view-switch a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  padding: 0 14px;
+  border-radius: 9999px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  text-decoration: none;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.view-switch a:hover {
+  color: var(--text-primary);
+}
+
+.view-switch a[aria-current="page"] {
+  background-color: var(--accent-soft);
+  color: var(--accent-color);
+}
+
 .btn-danger {
   background-color: var(--alert-color);
   color: #F4F6F2;
