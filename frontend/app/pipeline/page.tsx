@@ -362,7 +362,7 @@ export default function PipelinePage() {
                 if (status === 'skipped') { actionText = 'Skipped: pipeline rolled back'; actionColor = '#5A625C'; }
                 else if (lastLine) { actionText = lastLine; actionColor = status === 'failed' ? '#C97B5F' : '#8A938C'; }
 
-                const connectorColor = (status === 'success') ? '#3D6B4F55' : (status === 'failed' || status === 'skipped') ? '#373D38' : '#373D38';
+                const connectorColor = (status === 'success') ? '#3D6B4F55' : '#373D38';
 
                 return (
                   <div key={def.key} style={{ display: 'flex', alignItems: 'stretch', flex: 1, minWidth: 0 }}>
