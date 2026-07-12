@@ -8,6 +8,8 @@ so re-running never duplicates.
 """
 
 import json
+import shutil
+import subprocess
 import uuid
 
 from db.client import get_pg_connection, get_vector_collection
@@ -15,6 +17,20 @@ from db.client import get_pg_connection, get_vector_collection
 
 def _uid() -> str:
     return str(uuid.uuid4())
+
+
+def _docker_chroma_running() -> bool:
+    """True if a 'loomi-chroma' container is currently up (would divert seeds away from host Chroma)."""
+    if not shutil.which("docker"):
+        return False
+    try:
+        out = subprocess.run(
+            ["docker", "inspect", "-f", "{{.State.Running}}", "loomi-chroma"],
+            capture_output=True, text=True, timeout=3,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return False
+    return out.returncode == 0 and out.stdout.strip().lower() == "true"
 
 
 USERS = [
@@ -180,6 +196,14 @@ USAGE = [
 
 
 def seed() -> None:
+    if _docker_chroma_running():
+        print(
+            "WARNING: 'loomi-chroma' container is running. The backend reads from\n"
+            "         that HTTP-backed Chroma (chroma:8000), NOT the host Chroma.\n"
+            "         Run `make seed-in-docker` (== `docker exec loomi-core python -m db.seed`)\n"
+            "         instead, or this seed will write to a Chroma no service reads.",
+            flush=True,
+        )
     conn = get_pg_connection()
     cur = conn.cursor()
 

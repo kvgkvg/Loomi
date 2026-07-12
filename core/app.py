@@ -142,8 +142,8 @@ def _build_stages(header: dict, detail: dict) -> list[dict]:
         ], {"table": "rationale_statements", "review_status": "pending"})
         add("embed", "success", [
             "Precomputed draft embedding for fast approval",
-            f"Upserted draft vector id=draft:{detail.get('version_id')}",
-        ], {"vector_id": f"draft:{detail.get('version_id')}", "version_id": detail.get("version_id")})
+            f"Upserted Chroma vector id={detail.get('asset_id')}",
+        ], {"vector_id": detail.get("asset_id"), "version_id": detail.get("version_id")})
         add("finalize", "skipped", [
             "Waiting for human review before writing trusted rationale",
             "raw_events.processed remains 0 for retry/review visibility",
