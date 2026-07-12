@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import gsap from 'gsap';
 import { useGSAP } from '@gsap/react';
+import TopNav from './components/TopNav';
 
 // Register GSAP plugins
 if (typeof window !== 'undefined') {
@@ -468,76 +469,42 @@ export default function Home() {
     <div ref={containerRef} style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       
       {/* 1. TOP NAVIGATION */}
-      <nav style={{
-        height: '64px',
-        borderBottom: '1px solid var(--border-color)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: '0 24px',
-        backgroundColor: 'var(--panel-bg)',
-        backdropFilter: 'blur(10px)',
-        position: 'sticky',
-        top: 0,
-        zIndex: 100
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontWeight: 600, fontSize: '18px', color: 'var(--text-primary)' }}>Loomi</span>
-            <span style={{
-              fontSize: '11px',
-              fontFamily: 'var(--font-mono)',
-              padding: '2px 6px',
-              border: '1px solid var(--accent-color)',
-              color: 'var(--accent-color)',
-              borderRadius: '4px'
-            }}>MEM-ORGANIZATION</span>
-          </div>
-          {/* Product view switcher — Narrative vs capture pipeline */}
-          <nav className="view-switch" aria-label="Product views">
-            <a href="/" aria-current="page">Canvas</a>
-            <a href="/pipeline">Pipeline</a>
-          </nav>
+      <TopNav>
+        {/* Role lens switcher — personalization, not access control */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <span className="mono-text" style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Viewing as</span>
+          <select
+            value={role}
+            onChange={(e) => handleRoleChange(e.target.value)}
+            className="mono-text"
+            style={{
+              fontSize: '12px',
+              padding: '4px 8px',
+              borderRadius: '6px',
+              border: '1px solid var(--border-color)',
+              backgroundColor: 'var(--panel-bg)',
+              color: 'var(--text-primary)',
+              cursor: 'pointer',
+            }}
+          >
+            {ROLE_PRESETS.map(r => (
+              <option key={r} value={r}>{r}</option>
+            ))}
+          </select>
         </div>
-        
-        {/* Aggregated Health Check */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          {/* Role lens switcher — personalization, not access control */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span className="mono-text" style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Viewing as</span>
-            <select
-              value={role}
-              onChange={(e) => handleRoleChange(e.target.value)}
-              className="mono-text"
-              style={{
-                fontSize: '12px',
-                padding: '4px 8px',
-                borderRadius: '6px',
-                border: '1px solid var(--border-color)',
-                backgroundColor: 'var(--panel-bg)',
-                color: 'var(--text-primary)',
-                cursor: 'pointer'
-              }}
-            >
-              {ROLE_PRESETS.map(r => (
-                <option key={r} value={r}>{r}</option>
-              ))}
-            </select>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span style={{
-              width: '8px',
-              height: '8px',
-              borderRadius: '50%',
-              backgroundColor: health.status === 'ok' ? 'var(--accent-color)' : 'var(--alert-color)',
-              display: 'inline-block'
-            }} />
-            <span className="mono-text" style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-              System: {health.status === 'ok' ? 'HEALTHY' : 'DEGRADED'}
-            </span>
-          </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <span style={{
+            width: '8px',
+            height: '8px',
+            borderRadius: '50%',
+            backgroundColor: health.status === 'ok' ? 'var(--accent-color)' : 'var(--alert-color)',
+            display: 'inline-block',
+          }} />
+          <span className="mono-text" style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+            System: {health.status === 'ok' ? 'HEALTHY' : 'DEGRADED'}
+          </span>
         </div>
-      </nav>
+      </TopNav>
 
       {/* 2. MAIN NARRATIVE CANVAS */}
       <main style={{
