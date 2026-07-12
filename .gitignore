@@ -21,6 +21,7 @@ __pycache__/
 
 # worktrees
 .worktrees/
+.worktrees/nextjs-memory-demo/
 
 # local visual brainstorming artifacts
 .superpowers/

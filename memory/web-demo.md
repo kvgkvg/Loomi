@@ -272,3 +272,17 @@ Frontend container loomi-frontend runs `next start` with a baked
   `docker compose up -d loomi-frontend`), OR
 - switch to `next dev` for hot reload.
 Production cache will keep serving the old JS until one of those runs.
+
+## 2026-07-12 — Git Sync and Conflict Resolution for feature/app-demo
+
+### Done
+- Checked the status of `feature/app-demo` branch, noting a divergence of 1 commit local and 6 commits remote.
+- Ran `git fetch origin` and `git merge origin/feature/app-demo`.
+- The merge completed with auto-merging of `frontend/app/page.tsx` and no manual conflicts to resolve.
+- Committed the merge locally with `Merge remote-tracking branch 'origin/feature/app-demo' into feature/app-demo`.
+- Pushed changes successfully back to remote. Branch is now fully up to date with remote and working tree is clean.
+- Added explicit ignore rule for `.worktrees/nextjs-memory-demo` to `.gitignore`.
+
+### Why this pattern
+- Followed standard git merge procedure to integrate remote changes before pushing.
+- Since auto-merge handled everything cleanly, no manual conflict resolution step was required.
