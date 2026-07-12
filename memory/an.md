@@ -59,3 +59,35 @@
 - Install API dev dependencies in `api/` (`npm install`) before running gateway Jest suite locally.
 - For full core test pass, run in configured environment where Chroma persistent client mode is available.
 - Optional: add hook contract docs listing supported history keys for each client payload shape.
+
+## 2026-07-12 — recommend composer-change bug fix
+
+### Problem
+User reported: when composer content changes (new git commit) for an asset,
+recommend() did not surface the workflow even when the new query text was
+near-identical to the committed diff.
+
+Root cause: capture_pipeline/process.py upserted Chroma vector with
+`ids=[f"draft:{version_id}"]` and metadata `review_status="pending"`. Recommend
+engine (`recommend/engine.py`) queries Chroma with `query_texts=[task]` then
+joins hits on `assets.id IN (...)`. The id `draft:<uuid>` never matched any
+`assets.id`, so `meta = {}`, every row was skipped, results = [].
+
+### Fix
+- capture_pipeline/process.py: upsert directly under `ids=[asset_id]` (with
+  `version_id` and `review_status` in metadata). Removed the `draft:` prefix -
+  matches the convention Hồng already documented in `memory/recommend-hong.md`
+  ("vector id = asset_id") at integration time.
+- Engine unchanged - now join works because id == asset_id.
+- `tests/capture_pipeline/test_process.py::test_process_creates_pending_review_with_draft_embedding`
+  updated lookup to `result["asset_id"]` (test still asserts the upsert shape).
+- Trade-off: pending (un-reviewed) rationale is now visible in recommend().
+  Acceptable for MVP/ponytail; review tab still gates `rationale` table write.
+
+### Status
+`pytest tests/capture_pipeline/test_process.py tests/recommend/ tests/test_scoring.py`
+= 13/13 passed.
+
+Next: re-run end-to-end smoke with the demo composer; same asset, two commits
+should resolve to id=asset_id and recommmend should return consistent rows
+across edits instead of empty.

@@ -78,7 +78,7 @@ def test_process_creates_pending_review_with_draft_embedding(isolated_runtime, f
     assert result["review_status"] == "pending"
     assert len(result["statement_ids"]) == 3
     collection = fake_services
-    record = collection.records[f"draft:{result['version_id']}"]
+    record = collection.records[result["asset_id"]]
     assert record["document"] == "Route tickets\n\nProblem: Reduce misroutes"
     assert record["metadata"] == {
         "asset_id": result["asset_id"],

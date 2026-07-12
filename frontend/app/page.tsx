@@ -115,6 +115,7 @@ export default function Home() {
   const [trackInput, setTrackInput] = useState('');
   const [isTracking, setIsTracking] = useState(false);
   const [trackError, setTrackError] = useState<string | null>(null);
+  const [composerHint, setComposerHint] = useState<string | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const rationaleTextRef = useRef<HTMLDivElement>(null);
@@ -145,6 +146,16 @@ export default function Home() {
     setRole(value);
     window.localStorage.setItem('loomi-role', value);
   };
+
+  // Restore composer draft once on mount so full-page nav between
+  // Canvas ↔ Pipeline doesn't drop what the user typed.
+  useEffect(() => {
+    const saved = window.localStorage.getItem('loomi-composer');
+    if (saved) setComposerInput(saved);
+  }, []);
+  useEffect(() => {
+    window.localStorage.setItem('loomi-composer', composerInput);
+  }, [composerInput]);
 
   // Fetch which repository the poller is tracking
   useEffect(() => {
@@ -252,7 +263,7 @@ export default function Home() {
 
   // Debounced Recommendation logic
   useEffect(() => {
-    if (composerInput.trim().length < 24) {
+    if (composerInput.trim().length < 6) {
       setGhostSuggestion(null);
       return;
     }
@@ -275,25 +286,36 @@ export default function Home() {
           signal: controller.signal
         });
         const results = await res.json();
-        if (results && results.length > 0) {
+        if (res.ok && results && results.length > 0) {
           const best = results[0];
-          // Threshhold gating: DESIGN.md specifies score 0.45 or above
+          // DESIGN.md specifies 0.45 strong-match. Below that we still
+          // surface the asset so the user sees Loomi is alive, but mark it
+          // as a low-confidence match instead of going silent.
           if (best.score >= 0.45) {
-            setGhostSuggestion(best);
+            setGhostSuggestion({ ...best, score: best.score });
+            setComposerHint(null);
           } else {
-            setGhostSuggestion(null);
+            setGhostSuggestion({ ...best, score: best.score });
+            setComposerHint(
+              `Low-match (${(best.score * 100).toFixed(0)}%) — try a more specific composer to find stronger priors.`
+            );
           }
         } else {
           setGhostSuggestion(null);
+          setComposerHint(
+            "No related knowledge yet — run `make seed-in-docker` or push a commit to capture one."
+          );
         }
       } catch (err: any) {
         if (err.name !== 'AbortError') {
           console.error("Recommendation error:", err);
+          setGhostSuggestion(null);
+          setComposerHint("Recommendation service unreachable. Backend may be down.");
         }
       } finally {
         setIsLoadingSuggestion(false);
       }
-    }, 650); // Debounce duration 650 ms
+    }, 300); // Debounce duration 300 ms
 
     return () => {
       clearTimeout(delayDebounceFn);
@@ -684,7 +706,7 @@ export default function Home() {
             
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '12px' }}>
               <span className="mono-text" style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                {composerInput.length} characters (min 24 to match)
+                {composerInput.length} characters (min 6 to match)
               </span>
               {isLoadingSuggestion && (
                 <span className="mono-text" style={{ fontSize: '12px', color: 'var(--accent-color)' }}>
@@ -693,47 +715,19 @@ export default function Home() {
               )}
             </div>
 
-            {/* Ghost Suggestion Panel overlay */}
-            {ghostSuggestion && (
-              <div style={{
-                position: 'absolute',
-                bottom: '80px',
-                left: '24px',
-                right: '24px',
-                padding: '16px',
-                borderRadius: 'var(--input-radius)',
-                border: '1px solid var(--accent-color)',
-                backgroundColor: 'rgba(201, 217, 204, 0.95)',
-                color: '#1F2320',
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                boxShadow: '0 4px 20px rgba(0,0,0,0.1)',
-                backdropFilter: 'blur(5px)',
-                zIndex: 10
+            {/* Cold-start / low-confidence hint — keeps the user informed
+                that Loomi ran a search even when results were empty or weak. */}
+            {composerHint && (
+              <p className="mono-text" style={{
+                fontSize: '12px',
+                color: 'var(--text-secondary)',
+                marginTop: '8px',
+                padding: '8px 12px',
+                borderLeft: '2px solid var(--accent-color)',
+                backgroundColor: 'rgba(201, 217, 204, 0.15)'
               }}>
-                <div style={{ flex: 1, paddingRight: '16px' }}>
-                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '4px' }}>
-                    <span className="mono-text" style={{ fontSize: '11px', color: 'var(--accent-color)', fontWeight: 600 }}>PROACTIVE RECOMMENDATION</span>
-                    <span className="mono-text" style={{ fontSize: '11px', color: '#66706A' }}>Match: {(ghostSuggestion.score * 100).toFixed(0)}%</span>
-                  </div>
-                  <h4 style={{ fontSize: '16px', fontWeight: 600 }}>{ghostSuggestion.title}</h4>
-                  <p style={{ fontSize: '13px', color: '#444' }}>Created by: {ghostSuggestion.owner_name} • {ghostSuggestion.problem}</p>
-                  {ghostSuggestion.role_reason && (
-                    <p className="mono-text" style={{ fontSize: '11px', color: '#66706A', marginTop: '4px' }}>
-                      ◆ {role} lens: {ghostSuggestion.role_reason}
-                    </p>
-                  )}
-                </div>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <button className="btn btn-secondary" style={{ borderColor: 'var(--accent-color)', color: 'var(--accent-color)' }} onClick={() => handleReview(ghostSuggestion.asset_id)}>
-                    Review
-                  </button>
-                  <button className="btn btn-primary" onClick={() => handleReview(ghostSuggestion.asset_id)}>
-                    Adopt
-                  </button>
-                </div>
-              </div>
+                {composerHint}
+              </p>
             )}
           </div>
 
@@ -852,7 +846,47 @@ export default function Home() {
             display: 'flex',
             flexDirection: 'column'
           }}>
-            
+
+            {/* Proactive Recommendation — pinned above the Evidence Stack
+                so it updates as the composer changes, independent of which
+                asset (if any) the user is currently reviewing. */}
+            {ghostSuggestion && (
+              <div style={{
+                padding: '14px 16px',
+                marginBottom: '16px',
+                borderRadius: 'var(--input-radius)',
+                border: '1px solid var(--accent-color)',
+                backgroundColor: 'rgba(201, 217, 204, 0.95)',
+                color: '#1F2320',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '8px',
+                boxShadow: '0 4px 20px rgba(0,0,0,0.08)'
+              }}>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <span className="mono-text" style={{ fontSize: '11px', color: 'var(--accent-color)', fontWeight: 600 }}>PROACTIVE RECOMMENDATION</span>
+                  <span className="mono-text" style={{ fontSize: '11px', color: '#66706A' }}>Match: {(ghostSuggestion.score * 100).toFixed(0)}%</span>
+                </div>
+                <h4 style={{ fontSize: '15px', fontWeight: 600, margin: 0 }}>{ghostSuggestion.title}</h4>
+                <p style={{ fontSize: '13px', color: '#444', margin: 0 }}>
+                  Created by: {ghostSuggestion.owner_name} • {ghostSuggestion.problem}
+                </p>
+                {ghostSuggestion.role_reason && (
+                  <p className="mono-text" style={{ fontSize: '11px', color: '#66706A', margin: 0 }}>
+                    ◆ {role} lens: {ghostSuggestion.role_reason}
+                  </p>
+                )}
+                <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+                  <button className="btn btn-secondary" style={{ borderColor: 'var(--accent-color)', color: 'var(--accent-color)' }} onClick={() => handleReview(ghostSuggestion.asset_id)}>
+                    Review
+                  </button>
+                  <button className="btn btn-primary" onClick={() => handleReview(ghostSuggestion.asset_id)}>
+                    Adopt
+                  </button>
+                </div>
+              </div>
+            )}
+
             {!activeAsset ? (
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', textAlign: 'center', color: 'var(--text-secondary)' }}>
                 <h3 style={{ fontSize: '18px', fontWeight: 500, marginBottom: '8px' }}>Asset Onboarding Review</h3>
@@ -860,7 +894,7 @@ export default function Home() {
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
-                
+
                 {/* Evidence Heading */}
                 <div style={{ borderBottom: '1px solid var(--border-color)', paddingBottom: '16px', marginBottom: '16px' }}>
                   <span className="mono-text" style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Evidence Stack</span>

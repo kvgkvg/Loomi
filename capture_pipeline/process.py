@@ -255,10 +255,10 @@ def process_raw_event(raw_event_id: str) -> dict:
             )
 
         document = f"{event['content']}\n\nProblem: {rationale['problem']}"
-        # Precompute a draft vector under a non-asset id. Recommend joins by
-        # asset_id, so pending rationale stays out of normal search results.
+        # Vector id = asset_id so recommend() can join hits directly on
+        # assets.id. version_id stays in metadata for traceability.
         get_vector_collection().upsert(
-            ids=[f"draft:{version_id}"],
+            ids=[asset_id],
             documents=[document],
             metadatas=[
                 {
