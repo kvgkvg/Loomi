@@ -286,3 +286,21 @@ Production cache will keep serving the old JS until one of those runs.
 ### Why this pattern
 - Followed standard git merge procedure to integrate remote changes before pushing.
 - Since auto-merge handled everything cleanly, no manual conflict resolution step was required.
+
+## 2026-07-12 — third polling observation round
+
+### Trigger
+- Created commit 9354563 "chore: poll watch third demo merge"
+- PRed via gh (#5) and --merge --delete-branch
+- Last 4 raw_events rows all `processed=true`
+- Chroma count: 6 -> 10 (each merged commit adds 1 vector)
+- Recommend API top hit for new commit: score 0.631 STRONG
+
+### Confirmed polling cadence
+- Poller: `asyncio.sleep(3.0)` between runs
+  (core/app.py:420)
+- After PR merge, the new commit became visible to the poller within
+  the same minute (last_polled_sha advanced to the new sha almost
+  immediately)
+- 4 successful runs in the demo repo (6933625, 7e7cdb8, aef7a7d,
+  9354563)
